@@ -8,111 +8,27 @@ Builds time-series forecasting models using Prophet for:
 - Enrollment growth projections
 """
 
-import pandas as pd
-import numpy as np
 import os
-import warnings
+import sys
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-warnings.filterwarnings('ignore')
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed_data.csv')
-REPORTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'reports')
-MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
+# Ensure shared package is importable
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-
-def load_data():
-    return pd.read_csv(DATA_PATH, parse_dates=['TransactionDate'])
-
-
-def prepare_monthly_revenue(df):
-    """Aggregate to monthly total revenue for Prophet."""
-    monthly = df.groupby(pd.Grouper(key='TransactionDate', freq='MS'))['Amount'].sum().reset_index()
-    monthly.columns = ['ds', 'y']
-    monthly = monthly[monthly['y'] > 0].reset_index(drop=True)
-    return monthly
-
-
-def prepare_category_revenue(df, category):
-    """Monthly revenue for a single course category."""
-    sub = df[df['CourseCategory'] == category]
-    monthly = sub.groupby(pd.Grouper(key='TransactionDate', freq='MS'))['Amount'].sum().reset_index()
-    monthly.columns = ['ds', 'y']
-    monthly = monthly[monthly['y'] >= 0].reset_index(drop=True)
-    return monthly
-
-
-def prepare_monthly_enrollments(df):
-    """Monthly enrollment count."""
-    monthly = df.groupby(pd.Grouper(key='TransactionDate', freq='MS'))['TransactionID'].count().reset_index()
-    monthly.columns = ['ds', 'y']
-    return monthly
-
-
-def forecast_with_prophet(series_df, periods=6, freq='MS', title='Revenue Forecast', filename='forecast.png'):
-    """Train Prophet model and generate future forecasts."""
-    from prophet import Prophet
-
-    model = Prophet(
-        yearly_seasonality=True,
-        weekly_seasonality=False,
-        daily_seasonality=False,
-        seasonality_mode='multiplicative',
-        changepoint_prior_scale=0.05,
-    )
-    model.fit(series_df)
-
-    future = model.make_future_dataframe(periods=periods, freq=freq)
-    forecast = model.predict(future)
-
-    fig, ax = plt.subplots(figsize=(14, 6))
-    ax.plot(series_df['ds'], series_df['y'], color='steelblue', lw=2, label='Actual', marker='o', ms=4)
-    ax.plot(forecast['ds'], forecast['yhat'], color='darkorange', lw=2, label='Forecast', linestyle='--')
-    ax.fill_between(forecast['ds'], forecast['yhat_lower'], forecast['yhat_upper'],
-                    alpha=0.2, color='darkorange', label='Confidence Interval')
-    ax.axvline(x=series_df['ds'].max(), color='gray', linestyle=':', lw=1.5, label='Forecast Start')
-    ax.set_title(title, fontsize=13, fontweight='bold')
-    ax.set_xlabel('Date')
-    ax.set_ylabel('Value')
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(REPORTS_DIR, filename), dpi=150, bbox_inches='tight')
-    plt.close()
-
-    future_only = forecast[forecast['ds'] > series_df['ds'].max()]
-    print(f"\n{title} - Next {periods} periods forecast:")
-    print(future_only[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_string(index=False))
-    return model, forecast
-
-
-def forecast_with_arima_fallback(series_df, periods=6, title='Forecast', filename='arima_forecast.png'):
-    """ARIMA-based fallback when Prophet is unavailable or as comparison."""
-    from statsmodels.tsa.statespace.sarimax import SARIMAX
-
-    series = series_df.set_index('ds')['y']
-    series.index = pd.DatetimeIndex(series.index, freq='MS')
-
-    model = SARIMAX(series, order=(1, 1, 1), seasonal_order=(1, 0, 1, 12))
-    result = model.fit(disp=False)
-
-    forecast_res = result.get_forecast(steps=periods)
-    forecast_mean = forecast_res.predicted_mean
-    conf_int = forecast_res.conf_int()
-
-    fig, ax = plt.subplots(figsize=(14, 6))
-    ax.plot(series, color='steelblue', lw=2, label='Actual', marker='o', ms=4)
-    ax.plot(forecast_mean, color='darkorange', lw=2, linestyle='--', label='ARIMA Forecast')
-    ax.fill_between(conf_int.index, conf_int.iloc[:, 0], conf_int.iloc[:, 1],
-                    alpha=0.2, color='darkorange')
-    ax.set_title(title, fontsize=13, fontweight='bold')
-    ax.set_xlabel('Date')
-    ax.set_ylabel('Value')
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(REPORTS_DIR, filename), dpi=150, bbox_inches='tight')
-    plt.close()
-    return result, forecast_mean
+from edup.config import REPORTS_DIR, MODELS_DIR
+from edup.data import load_processed_data
+from edup.forecasting import (
+    prepare_monthly_revenue,
+    prepare_monthly_enrollments,
+    prepare_category_revenue,
+    forecast_with_prophet,
+    forecast_with_arima_fallback,
+)
 
 
 def plot_category_growth_comparison(df):
@@ -139,8 +55,11 @@ def plot_category_growth_comparison(df):
 
 
 def run_forecasting():
+    import pandas as pd
+    import joblib
+
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    df = load_data()
+    df = load_processed_data()
     print(f"Running forecasting on {df.shape[0]} records...")
 
     monthly_rev = prepare_monthly_revenue(df)
@@ -164,7 +83,6 @@ def run_forecasting():
                 title=f'Revenue Forecast: {top_category}',
                 filename='forecast_top_category.png')
 
-        import joblib
         joblib.dump({'revenue': revenue_forecast, 'enrollment': enroll_forecast},
                     os.path.join(MODELS_DIR, 'forecast_results.pkl'))
         print("\nForecasting complete. Results saved.")

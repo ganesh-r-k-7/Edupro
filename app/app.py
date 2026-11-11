@@ -5,11 +5,8 @@ Multi-page Streamlit application for course demand and revenue forecasting.
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import os
 import sys
-import warnings
-warnings.filterwarnings('ignore')
 
 # Ensure utils module is importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -87,14 +84,8 @@ st.markdown("""
 # ─── Data Loading ─────────────────────────────────────────────────────────────
 
 @st.cache_data
-def get_data():
-    return utils.load_processed_data()
-
-
-@st.cache_data
-def get_kpis(df_hash):
-    df = get_data()
-    return utils.compute_kpis(df)
+def get_data(data_path, modified_ns):
+    return utils.load_processed_data(data_path)
 
 
 def kpi_card(label, value, col):
@@ -125,10 +116,29 @@ with st.sidebar:
     )
     st.markdown("---")
     st.markdown(
-        "<small style='color:#888'>EduPro Predictive Modeling v1.0<br>"
-        "Built with Streamlit + XGBoost + Prophet</small>",
+        "<small style='color:#888'>EduPro Analytics v1.2 — Phase 2<br>"
+        "Baseline reference estimates + cached Prophet output</small>",
         unsafe_allow_html=True
     )
+
+
+# ─── Data Availability ───────────────────────────────────────────────────────
+
+try:
+    try:
+        data_mtime_ns = os.stat(utils.DATA_PATH).st_mtime_ns
+    except OSError:
+        data_mtime_ns = None
+    df = get_data(utils.DATA_PATH, data_mtime_ns)
+except utils.DataUnavailableError as exc:
+    st.error("Processed data is unavailable, so the dashboard cannot load.")
+    st.code(
+        "python notebooks/01_data_preprocessing.py\n"
+        "python notebooks/03_feature_engineering.py",
+        language='bash'
+    )
+    st.caption(str(exc))
+    st.stop()
 
 
 # ─── Page 1: Executive Dashboard ─────────────────────────────────────────────
@@ -137,14 +147,13 @@ if page == "Executive Dashboard":
     st.markdown('<div class="main-header">Executive Dashboard</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Platform-wide performance overview and strategic KPIs</div>', unsafe_allow_html=True)
 
-    df = get_data()
     kpis = utils.compute_kpis(df)
 
     c1, c2, c3, c4 = st.columns(4)
     kpi_card("Total Revenue", f"${kpis['total_revenue']:,.0f}", c1)
     kpi_card("Total Enrollments", f"{kpis['total_enrollments']:,}", c2)
     kpi_card("Avg Course Rating", f"{kpis['avg_course_rating']:.2f} / 5.0", c3)
-    kpi_card("Paid Transaction Rate", f"{kpis['paid_ratio']:.1f}%", c4)
+    kpi_card("Paid Transaction Share", f"{kpis['paid_ratio']:.1f}%", c4)
 
     c5, c6, c7, c8 = st.columns(4)
     kpi_card("Active Courses", f"{kpis['unique_courses']}", c5)
@@ -169,23 +178,23 @@ if page == "Executive Dashboard":
         st.plotly_chart(utils.chart_payment_methods(df), use_container_width=True)
 
     st.markdown('<div class="section-title">Strategic Insights</div>', unsafe_allow_html=True)
-    top_cat_rev = df.groupby('CourseCategory')['Amount'].sum()
-    top3 = top_cat_rev.nlargest(3).index.tolist()
-    total = top_cat_rev.sum()
-    top3_share = top_cat_rev.nlargest(3).sum() / total * 100 if total > 0 else 0
+    facts = utils.get_business_facts(df)
+    top3 = facts['top3_categories']
+    top3_share = facts['top3_share_pct']
 
     st.markdown(f'<div class="insight-box">The top 3 revenue-generating categories are <strong>{", ".join(top3)}</strong>, collectively accounting for <strong>{top3_share:.1f}%</strong> of total platform revenue.</div>', unsafe_allow_html=True)
 
-    paid_rev = df[df['Amount'] > 0]['Amount'].sum()
-    free_enroll = (df['Amount'] == 0).sum()
-    st.markdown(f'<div class="insight-box">Free course enrollments account for <strong>{free_enroll:,}</strong> transactions ({free_enroll/len(df)*100:.1f}% of total), representing a significant upsell and conversion opportunity.</div>', unsafe_allow_html=True)
+    free_enroll = facts['free_transactions']
+    free_share = facts['free_share_pct']
+    st.markdown(f'<div class="insight-box">Free course transactions account for <strong>{free_enroll:,}</strong> enrollments ({free_share:.1f}% of total). In this dataset paid/free is determined at the course level, so this is a portfolio mix observation rather than a learner conversion rate.</div>', unsafe_allow_html=True)
 
 
 # ─── Page 2: Course Demand Prediction ────────────────────────────────────────
 
 elif page == "Course Demand Prediction":
     st.markdown('<div class="main-header">Course Demand Prediction</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Predict expected enrollments and revenue for a new or existing course</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Reference enrollment estimate and transparent revenue scenarios for a course configuration</div>', unsafe_allow_html=True)
+
 
     with st.form("prediction_form"):
         st.markdown('<div class="section-title">Course Parameters</div>', unsafe_allow_html=True)
@@ -204,87 +213,162 @@ elif page == "Course Demand Prediction":
             teacher_exp = st.slider("Teacher Experience (years)", 0, 30, 5)
             teacher_rating = st.slider("Teacher Rating", 1.0, 5.0, 4.0, 0.1)
             payment_method = st.selectbox("Payment Method", utils.PAYMENT_METHODS)
+            st.caption("Payment method is informational only; it is not used to estimate demand.")
 
-        submitted = st.form_submit_button("Generate Predictions", type="primary")
+        submitted = st.form_submit_button("Generate Estimate", type="primary")
 
     if submitted:
-        with st.spinner("Running prediction models..."):
-            pred_rev, rev_err = utils.predict_revenue(
-                category, level, price, duration, teacher_exp, teacher_rating)
-            pred_enroll, enroll_err = utils.predict_enrollment(
-                category, level, price, duration, teacher_exp, teacher_rating)
-
-        st.markdown('<div class="section-title">Prediction Results</div>', unsafe_allow_html=True)
-
-        if rev_err or enroll_err:
-            st.warning(rev_err or enroll_err)
-            st.info("Tip: Run the pipeline script first to train and save models. See README.md for instructions.")
+        try:
+            values = utils.validate_course_inputs(
+                category, level, price, duration, teacher_exp, teacher_rating,
+                course_type, course_rating, payment_method)
+        except ValueError as exc:
+            st.error(str(exc))
         else:
-            c1, c2, c3 = st.columns(3)
-            kpi_card("Predicted Revenue / Transaction", f"${pred_rev:,.2f}", c1)
-            kpi_card("Predicted Enrollments", f"{int(pred_enroll):,}", c2)
-            projected_total = pred_rev * pred_enroll
-            kpi_card("Projected Total Revenue", f"${projected_total:,.0f}", c3)
+            reference, ref_err = utils.estimate_enrollment_reference(df)
+            if ref_err:
+                st.error(ref_err)
+            else:
+                if values['course_type'] == 'Free' and price != 0:
+                    st.info("Free courses are normalized to a $0 course price, matching the historical data.")
+                expected_rev = utils.calculate_expected_revenue(
+                    values['course_type'], values['course_price'], reference['mean'])
+                low_rev = utils.calculate_expected_revenue(
+                    values['course_type'], values['course_price'], reference['p10'])
+                high_rev = utils.calculate_expected_revenue(
+                    values['course_type'], values['course_price'], reference['p90'])
 
-            st.markdown('<div class="section-title">Pricing Sensitivity Analysis</div>', unsafe_allow_html=True)
-            prices = np.linspace(max(0, price - 50), price + 100, 20)
-            rev_curve = []
-            for p in prices:
-                r, e = utils.predict_revenue(category, level, p, duration, teacher_exp, teacher_rating)
-                rev_curve.append({'Price': p, 'Predicted Revenue': r or 0})
+                st.markdown('<div class="section-title">Reference Estimate</div>', unsafe_allow_html=True)
+                c1, c2, c3 = st.columns(3)
+                kpi_card("Reference Enrollments", f"{reference['mean']:.0f}", c1)
+                kpi_card("Historical Range", f"{reference['p10']:.0f}–{reference['p90']:.0f}", c2)
+                kpi_card("Expected Revenue at Reference", f"${expected_rev:,.0f}", c3)
+                st.caption(
+                    "The reference value is the historical course-level average across "
+                    f"{reference['n_courses']} courses. It is not a personalized demand forecast. "
+                    f"Revenue range from the 10th–90th percentile enrollment range: "
+                    f"${low_rev:,.0f}–${high_rev:,.0f}."
+                )
+                st.warning(
+                    "The enrollment model does not beat a mean baseline on this dataset. "
+                    "The dashboard therefore shows a historical reference, not a model prediction."
+                )
 
-            import plotly.express as px
-            fig_curve = px.line(pd.DataFrame(rev_curve), x='Price', y='Predicted Revenue',
-                                title='Revenue Sensitivity to Price Change',
-                                labels={'Price': 'Course Price ($)', 'Predicted Revenue': 'Predicted Revenue ($)'},
-                                markers=True)
-            fig_curve.add_vline(x=price, line_dash='dash', line_color='red',
-                                annotation_text='Current Price')
-            st.plotly_chart(fig_curve, use_container_width=True)
+                if values['course_type'] == 'Free':
+                    st.info("Free courses generate $0 in transaction revenue in this dataset. Pricing scenarios are disabled for Free courses.")
+                else:
+                    st.markdown('<div class="section-title">Price Scenario Analysis</div>', unsafe_allow_html=True)
+                    diag = utils.get_price_demand_diagnostics(df)
+                    corr = diag['paid_price_enrollment_corr']
+                    corr_text = 'not defined' if corr is None else f'{corr:.3f}'
+                    st.warning(
+                        "Price response cannot be estimated from this dataset. "
+                        f"There are {diag['unique_paid_prices']} paid prices across "
+                        f"{diag['n_paid_courses']} paid courses, and "
+                        f"{diag['courses_with_multiple_prices']} course(s) changed price. "
+                        f"The paid price/enrollment correlation is {corr_text}. "
+                        "The table below is an arithmetic what-if analysis, not a demand forecast. "
+                        "No price is recommended."
+                    )
 
-            st.markdown('<div class="insight-box">Based on the model, the optimal price point for maximum revenue is approximately <strong>${:.0f}</strong>. Consider A/B testing pricing around this range.</div>'.format(
-                pd.DataFrame(rev_curve).set_index('Price')['Predicted Revenue'].idxmax()
-            ), unsafe_allow_html=True)
+                    assumed_change = st.slider(
+                        "Assumed enrollment change versus reference (%)",
+                        min_value=-50, max_value=50, value=0, step=5,
+                        help="Applied equally at every tested price. This is an assumption, not an estimated elasticity."
+                    )
+                    scenario_prices = sorted(set(
+                        [50.0, 100.0, 150.0, 200.0, 250.0, 300.0, 350.0, 400.0, 450.0, 500.0,
+                         round(values['course_price'], 2)]
+                    ))
+                    scenario = utils.get_pricing_scenarios(
+                        values['course_price'], reference['mean'],
+                        assumed_change_pct=assumed_change, prices=scenario_prices)
+
+                    display = scenario.copy()
+                    display['Price'] = display['Price'].map(lambda x: f"${x:,.2f}")
+                    display['ProjectedEnrollments'] = display['ProjectedEnrollments'].round(1)
+                    display['ProjectedRevenue'] = display['ProjectedRevenue'].map(lambda x: f"${x:,.0f}")
+                    display['BreakEvenEnrollmentChangePct'] = display[
+                        'BreakEvenEnrollmentChangePct'
+                    ].map(lambda x: "n/a" if pd.isna(x) else f"{x:.1f}%")
+                    display = display[[
+                        'Price', 'ProjectedEnrollments', 'ProjectedRevenue',
+                        'BreakEvenEnrollmentChangePct'
+                    ]].rename(columns={
+                        'Price': 'Price',
+                        'ProjectedEnrollments': 'Enrollment Assumption',
+                        'ProjectedRevenue': 'Scenario Revenue',
+                        'BreakEvenEnrollmentChangePct': 'Break-even Enrollment Change',
+                    })
+                    st.dataframe(display.reset_index(drop=True), use_container_width=True)
+                    st.caption(
+                        "Break-even enrollment change is the demand change needed to keep revenue "
+                        "unchanged relative to the current price. Positive values mean enrollment could "
+                        "rise; negative values mean it would need to fall. It is arithmetic, not a forecast."
+                    )
+
+                    import plotly.express as px
+                    fig_curve = px.line(
+                        scenario, x='Price', y='ProjectedRevenue', markers=True,
+                        title='Illustrative Revenue Scenario (Assumption: '
+                              f'{assumed_change:+d}% enrollment change)',
+                        labels={'Price': 'Course Price ($)',
+                                'ProjectedRevenue': 'Scenario Revenue ($)'})
+                    fig_curve.add_vline(x=values['course_price'], line_dash='dash',
+                                        line_color='red', annotation_text='Current Price')
+                    fig_curve.update_layout(height=380)
+                    st.plotly_chart(fig_curve, use_container_width=True)
+                    st.caption(
+                        "This chart is not a demand curve. The dataset has one price per course "
+                        "and no within-course price changes, so a price experiment is required "
+                        "before making causal pricing decisions."
+                    )
 
 
 # ─── Page 3: Revenue Forecasting ─────────────────────────────────────────────
 
 elif page == "Revenue Forecasting":
     st.markdown('<div class="main-header">Revenue Forecasting</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Time-series revenue and enrollment forecasts using Prophet</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Historical monthly revenue and cached forecast output; not a validated forecast</div>', unsafe_allow_html=True)
 
-    df = get_data()
 
     st.markdown('<div class="section-title">Historical Monthly Revenue</div>', unsafe_allow_html=True)
     st.plotly_chart(utils.chart_monthly_revenue(df), use_container_width=True)
 
-    forecast_data = utils.load_forecast_results()
-    if forecast_data:
+    forecast_data, forecast_err = utils.load_forecast_results()
+    if forecast_err:
+        st.error(forecast_err)
+    elif forecast_data:
+        st.warning(
+            "This is cached Prophet model output. It has not been backtested in this project "
+            "and should not be treated as a validated forecast."
+        )
         st.markdown('<div class="section-title">Revenue Forecast (Next 6 Months)</div>', unsafe_allow_html=True)
-        rev_fc = forecast_data.get('revenue')
-        if rev_fc is not None:
-            import plotly.graph_objects as go
-            fig_fc = go.Figure()
-            hist = rev_fc[rev_fc['ds'] <= df['TransactionDate'].max()]
-            fut = rev_fc[rev_fc['ds'] > df['TransactionDate'].max()]
-            fig_fc.add_trace(go.Scatter(x=hist['ds'], y=hist['yhat'], name='Historical Fit',
-                                        line=dict(color='steelblue', width=2)))
-            fig_fc.add_trace(go.Scatter(x=fut['ds'], y=fut['yhat'], name='Forecast',
-                                        line=dict(color='darkorange', width=2, dash='dash')))
+        rev_fc = forecast_data['revenue']
+        import plotly.graph_objects as go
+        fig_fc = go.Figure()
+        hist = rev_fc[rev_fc['ds'] <= df['TransactionDate'].max()]
+        fut = rev_fc[rev_fc['ds'] > df['TransactionDate'].max()]
+        fig_fc.add_trace(go.Scatter(x=hist['ds'], y=hist['yhat'], name='Historical Fit',
+                                    line=dict(color='steelblue', width=2)))
+        fig_fc.add_trace(go.Scatter(x=fut['ds'], y=fut['yhat'], name='Forecast',
+                                    line=dict(color='darkorange', width=2, dash='dash')))
+        if len(fut):
             fig_fc.add_trace(go.Scatter(
                 x=pd.concat([fut['ds'], fut['ds'].iloc[::-1]]),
                 y=pd.concat([fut['yhat_upper'], fut['yhat_lower'].iloc[::-1]]),
                 fill='toself', fillcolor='rgba(255,165,0,0.15)',
                 line=dict(color='rgba(255,255,255,0)'), name='Confidence Interval'))
-            fig_fc.update_layout(title='Monthly Revenue Forecast',
-                                  xaxis_title='Date', yaxis_title='Revenue ($)', height=400)
-            st.plotly_chart(fig_fc, use_container_width=True)
+        fig_fc.update_layout(title='Monthly Revenue Forecast',
+                              xaxis_title='Date', yaxis_title='Revenue ($)', height=400)
+        st.plotly_chart(fig_fc, use_container_width=True)
 
-            future_rows = rev_fc[rev_fc['ds'] > df['TransactionDate'].max()][['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-            future_rows.columns = ['Month', 'Forecast ($)', 'Lower Bound ($)', 'Upper Bound ($)']
-            future_rows = future_rows.round(2)
-            st.markdown('<div class="section-title">Forecast Table</div>', unsafe_allow_html=True)
-            st.dataframe(future_rows.reset_index(drop=True), use_container_width=True)
+        future_rows = fut[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+        future_rows.columns = ['Month', 'Forecast ($)', 'Lower Bound ($)', 'Upper Bound ($)']
+        value_columns = ['Forecast ($)', 'Lower Bound ($)', 'Upper Bound ($)']
+        future_rows[value_columns] = future_rows[value_columns].round(2)
+        st.markdown('<div class="section-title">Forecast Table</div>', unsafe_allow_html=True)
+        st.dataframe(future_rows.reset_index(drop=True), use_container_width=True)
     else:
         st.info("Forecast results not yet generated. Run the forecasting pipeline (notebooks/06_forecasting.py) to compute and cache forecast results.")
 
@@ -299,8 +383,7 @@ elif page == "Revenue Forecasting":
     fig_cat.update_layout(height=450, xaxis_tickangle=-30)
     st.plotly_chart(fig_cat, use_container_width=True)
 
-    st.markdown('<div class="section-title">Revenue Growth Rate by Category</div>', unsafe_allow_html=True)
-    cat_rev = df.groupby('CourseCategory')['Amount'].sum().sort_values(ascending=False)
+    st.markdown('<div class="section-title">First-to-Last Month Revenue Growth by Category</div>', unsafe_allow_html=True)
     cat_monthly = df.groupby(['CourseCategory', df['TransactionDate'].dt.to_period('M')])['Amount'].sum().unstack().fillna(0)
 
     growth_data = []
@@ -314,138 +397,88 @@ elif page == "Revenue Forecasting":
         growth_df = pd.DataFrame(growth_data).sort_values('Revenue Growth (%)', ascending=False)
         fig_growth = px.bar(growth_df, x='Category', y='Revenue Growth (%)',
                             color='Revenue Growth (%)', color_continuous_scale='Blues',
-                            title='YTD Revenue Growth Rate by Category')
+                            title='First-to-Last Month Revenue Growth by Category')
         fig_growth.update_layout(xaxis_tickangle=-45, height=380)
         st.plotly_chart(fig_growth, use_container_width=True)
+        st.caption(
+            "This compares the first and last observed months in the dataset. "
+            "It is not a year-to-date measure and does not establish a trend."
+        )
 
 
 # ─── Page 4: Feature Importance Explorer ─────────────────────────────────────
 
 elif page == "Feature Importance Explorer":
-    st.markdown('<div class="main-header">Feature Importance Explorer</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Understand the key drivers of course demand and revenue using SHAP and feature importance analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">Model Validity and Data Drivers</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Why the legacy models are not used for demand or pricing decisions</div>', unsafe_allow_html=True)
 
-    import os
-    import plotly.express as px
-    import joblib
+    facts = utils.get_business_facts(df)
+    diagnostics = utils.get_price_demand_diagnostics(df)
+    reference, ref_err = utils.estimate_enrollment_reference(df)
 
-    MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'models')
-    revenue_model_path = os.path.join(MODELS_DIR, 'revenue_model.pkl')
-    enrollment_model_path = os.path.join(MODELS_DIR, 'enrollment_model.pkl')
+    st.error(
+        "Legacy revenue model retired: transaction Amount is an accounting identity with "
+        "CoursePrice (Amount = CoursePrice for paid rows, $0 for free rows). Its R² = 1.0 "
+        "reflects target leakage, not predictive skill."
+    )
+    st.warning(
+        "The legacy enrollment model does not beat a mean baseline under a valid evaluation. "
+        "Feature-importance and SHAP charts are therefore disabled until a model is validated "
+        "against the baseline and persisted with its evaluation metadata."
+    )
 
-    NUMERIC_FEATURES = [
-        'CoursePrice', 'CourseDuration', 'CourseRating',
-        'TeacherRating', 'YearsOfExperience', 'EncodedCourseLevel',
-        'TeacherRatingScore', 'ExpertiseCategoryMatch',
-        'TransactionMonth', 'Quarter', 'IsWeekend'
-    ]
-    CATEGORICAL_FEATURES = [
-        'CourseCategory', 'CourseType', 'PriceBand',
-        'DurationBucket', 'RatingTier', 'ExperienceBucket',
-        'SeasonalityLabel', 'PaymentMethod'
-    ]
+    st.markdown('<div class="section-title">Data-Verified Portfolio Facts</div>', unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    kpi_card("Free Transaction Share", f"{facts['free_share_pct']:.2f}%", c1)
+    kpi_card("Paid Courses", f"{facts['paid_courses']}", c2)
+    kpi_card("Free Courses", f"{facts['free_courses']}", c3)
+    kpi_card("Top 3 Revenue Share", f"{facts['top3_share_pct']:.2f}%", c4)
+    st.markdown(
+        f'<div class="insight-box">Top revenue categories: <strong>{", ".join(facts["top3_categories"])}</strong>. '
+        f'Machine Learning revenue is <strong>${facts["machine_learning_revenue"]:,.2f}</strong>; '
+        f'Marketing revenue is <strong>${facts["marketing_revenue"]:,.2f}</strong>.</div>',
+        unsafe_allow_html=True
+    )
 
-    if not os.path.exists(revenue_model_path):
-        st.info("Models not yet trained. Run the pipeline (notebooks/04_model_training.py) to generate models.")
+    st.markdown('<div class="section-title">Descriptive Enrollment Associations</div>', unsafe_allow_html=True)
+    if ref_err:
+        st.error(ref_err)
     else:
-        model_select = st.radio("Select Model", ["Revenue Prediction", "Enrollment Prediction"], horizontal=True)
-        model_path = revenue_model_path if model_select == "Revenue Prediction" else enrollment_model_path
+        st.caption(
+            f"Historical reference enrollment: mean {reference['mean']:.1f}, "
+            f"10th–90th percentile {reference['p10']:.0f}–{reference['p90']:.0f} "
+            f"across {reference['n_courses']} courses. These are descriptive statistics, not a model."
+        )
+    st.plotly_chart(utils.chart_enrollment_by_category(df), use_container_width=True)
 
-        if os.path.exists(model_path):
-            model = joblib.load(model_path)
-            final_model = model.named_steps['model']
-
-            if hasattr(final_model, 'feature_importances_'):
-                preprocessor = model.named_steps['preprocessor']
-                try:
-                    ohe = preprocessor.named_transformers_['cat']
-                    cat_names = list(ohe.get_feature_names_out(CATEGORICAL_FEATURES))
-                except Exception:
-                    cat_names = []
-
-                all_names = NUMERIC_FEATURES + cat_names
-                importances = final_model.feature_importances_
-                n = min(len(importances), len(all_names))
-                feat_imp = pd.DataFrame({
-                    'Feature': all_names[:n],
-                    'Importance': importances[:n]
-                }).sort_values('Importance', ascending=False)
-
-                st.markdown('<div class="section-title">Top 20 Feature Importances</div>', unsafe_allow_html=True)
-                top20 = feat_imp.head(20)
-                fig_imp = px.bar(top20, x='Importance', y='Feature', orientation='h',
-                                 color='Importance', color_continuous_scale='Blues',
-                                 title=f'{model_select}: Feature Importance Rankings')
-                fig_imp.update_layout(height=550, coloraxis_showscale=False, yaxis={'autorange': 'reversed'})
-                st.plotly_chart(fig_imp, use_container_width=True)
-
-                st.markdown('<div class="section-title">Feature Importance Table</div>', unsafe_allow_html=True)
-                st.dataframe(feat_imp.round(6).reset_index(drop=True), use_container_width=True)
-
-                st.markdown('<div class="section-title">Demand Driver Analysis</div>', unsafe_allow_html=True)
-                top3_features = feat_imp.head(3)['Feature'].tolist()
-
-                st.markdown(f"""
-                <div class="insight-box">
-                    <strong>Primary Demand Drivers:</strong><br>
-                    The top 3 features driving {model_select.lower()} are: <strong>{', '.join(top3_features)}</strong>.
-                    These features have the highest predictive weight in the model and should be the
-                    primary focus for business optimization strategies.
-                </div>
-                """, unsafe_allow_html=True)
-
-                if 'CoursePrice' in top3_features or 'PriceBand' in top3_features:
-                    st.markdown('<div class="insight-box"><strong>Pricing Sensitivity:</strong> Course price is among the top demand drivers. A tiered pricing strategy aligned with the course category and level is recommended.</div>', unsafe_allow_html=True)
-
-                if any('Teacher' in f or 'Rating' in f for f in top3_features):
-                    st.markdown('<div class="insight-box"><strong>Instructor Influence:</strong> Teacher quality metrics are significant revenue predictors. Prioritizing instructor ratings and experience in course assignments can increase revenue.</div>', unsafe_allow_html=True)
-
-                # SHAP section
-                st.markdown('<div class="section-title">SHAP Explainability</div>', unsafe_allow_html=True)
-                if st.button("Compute SHAP Values (may take 30-60 seconds)"):
-                    with st.spinner("Computing SHAP values..."):
-                        try:
-                            import shap
-                            df = get_data()
-                            num_available = [c for c in NUMERIC_FEATURES if c in df.columns]
-                            cat_available = [c for c in CATEGORICAL_FEATURES if c in df.columns]
-                            X_sample = df[num_available + cat_available].sample(
-                                min(200, len(df)), random_state=42)
-                            shap_vals, X_df, explainer = utils.compute_shap_values(
-                                model, X_sample, num_available, cat_available)
-
-                            shap_imp = pd.DataFrame({
-                                'Feature': X_df.columns,
-                                'SHAP Mean Abs': np.abs(shap_vals).mean(axis=0)
-                            }).sort_values('SHAP Mean Abs', ascending=False).head(20)
-
-                            fig_shap = px.bar(shap_imp, x='SHAP Mean Abs', y='Feature',
-                                              orientation='h', color='SHAP Mean Abs',
-                                              color_continuous_scale='RdBu',
-                                              title='SHAP Feature Contributions (Mean |SHAP|)')
-                            fig_shap.update_layout(height=550, coloraxis_showscale=False,
-                                                    yaxis={'autorange': 'reversed'})
-                            st.plotly_chart(fig_shap, use_container_width=True)
-                            st.success("SHAP analysis complete.")
-                        except Exception as e:
-                            st.error(f"SHAP computation error: {e}")
-            else:
-                st.warning("Loaded model does not support feature importances. Ensure XGBoost or RandomForest is the final estimator.")
-        else:
-            st.info(f"Model file not found at: {model_path}")
+    st.markdown('<div class="section-title">Price-Response Evidence</div>', unsafe_allow_html=True)
+    corr = diagnostics['paid_price_enrollment_corr']
+    corr_text = "not defined" if corr is None else f"{corr:.3f}"
+    st.markdown(
+        f'<div class="insight-box">Paid courses: <strong>{diagnostics["n_paid_courses"]}</strong>; '
+        f'unique paid prices: <strong>{diagnostics["unique_paid_prices"]}</strong>; '
+        f'courses with more than one price: <strong>{diagnostics["courses_with_multiple_prices"]}</strong>; '
+        f'paid price/enrollment correlation: <strong>{corr_text}</strong>.<br>'
+        f'{diagnostics["reason"]}</div>',
+        unsafe_allow_html=True
+    )
+    st.caption(
+        "A valid feature-importance or SHAP result requires a model that beats a simple baseline "
+        "on a held-out evaluation. No such model exists in this project."
+    )
 
 
 # ─── Page 5: Category Analytics ──────────────────────────────────────────────
 
 elif page == "Category Analytics":
     st.markdown('<div class="main-header">Category Analytics</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Deep-dive into course category performance, profitability, and growth</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Deep-dive into course category revenue, teacher associations, and growth</div>', unsafe_allow_html=True)
 
-    df = get_data()
     import plotly.express as px
 
-    st.markdown('<div class="section-title">Category Profitability Matrix</div>', unsafe_allow_html=True)
-    st.plotly_chart(utils.chart_category_profitability(df), use_container_width=True)
+    st.markdown('<div class="section-title">Category Revenue Efficiency Matrix</div>', unsafe_allow_html=True)
+    st.plotly_chart(utils.chart_category_revenue_efficiency(df), use_container_width=True)
+    st.caption("Revenue per enrollment is descriptive. The dataset has no cost, margin, or profit data.")
 
     st.markdown('<div class="section-title">Teacher Performance Overview</div>', unsafe_allow_html=True)
     st.plotly_chart(utils.chart_teacher_performance(df), use_container_width=True)
@@ -461,7 +494,7 @@ elif page == "Category Analytics":
         kpi_card("Category Revenue", f"${cat_df['Amount'].sum():,.0f}", c1)
         kpi_card("Enrollments", f"{len(cat_df):,}", c2)
         kpi_card("Avg Course Rating", f"{cat_df['CourseRating'].mean():.2f}", c3)
-        kpi_card("Avg Price", f"${cat_df['CoursePrice'].mean():.2f}", c4)
+        kpi_card("Avg Price (all courses)", f"${cat_df['CoursePrice'].mean():.2f}", c4)
 
         col_a, col_b = st.columns(2)
         with col_a:
@@ -495,5 +528,5 @@ elif page == "Category Analytics":
         st.markdown('<div class="section-title">Strategic Insights</div>', unsafe_allow_html=True)
         avg_rev_enroll = cat_df['Amount'].sum() / len(cat_df) if len(cat_df) > 0 else 0
         top_course = course_perf.iloc[0]['CourseName'] if len(course_perf) > 0 else 'N/A'
-        st.markdown(f'<div class="insight-box"><strong>Top Course:</strong> "{top_course}" leads {selected_cat} in revenue. This course should be prioritized for marketing campaigns and instructor development.</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="insight-box"><strong>Revenue Efficiency:</strong> Average revenue per enrollment in {selected_cat} is <strong>${avg_rev_enroll:.2f}</strong>. Focus on moving learners from free to paid tiers to improve this metric.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="insight-box"><strong>Top Course:</strong> "{top_course}" has the highest historical revenue in {selected_cat}. This is a descriptive observation, not a causal recommendation.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="insight-box"><strong>Revenue Efficiency:</strong> Average revenue per enrollment in {selected_cat} is <strong>${avg_rev_enroll:.2f}</strong>, including free enrollments. Paid/free is a course-level attribute here, so this is not a learner conversion rate.</div>', unsafe_allow_html=True)

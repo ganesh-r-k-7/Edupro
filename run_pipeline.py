@@ -5,8 +5,8 @@ Executes all steps in sequence:
   1. Data Preprocessing
   2. Feature Engineering
   3. EDA (generates charts)
-  4. Model Training
-  5. Model Evaluation
+  4. Model Training (revenue target audit + enrollment baseline comparison)
+  5. Model Evaluation (leakage audit + enrolled baseline metrics)
   6. Forecasting
 
 Run this once before launching the Streamlit dashboard.

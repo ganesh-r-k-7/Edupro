@@ -9,12 +9,31 @@ Creates advanced engineered features for ML models:
 - Time-based features (TransactionMonth, Quarter, Year, Seasonality)
 """
 
-import pandas as pd
-import numpy as np
 import os
+import sys
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed_data.csv')
-OUTPUT_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed_data.csv')
+import pandas as pd
+
+# Ensure shared package is importable
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from edup.config import PROCESSED_DATA_PATH, ENGINEERED_COLUMNS
+from edup.features import (
+    price_band,
+    duration_bucket,
+    rating_tier,
+    encode_course_level as _encode_course_level_fn,
+    experience_bucket,
+    teacher_rating_score,
+    seasonality_label,
+)
+
+
+DATA_PATH = PROCESSED_DATA_PATH
+OUTPUT_PATH = PROCESSED_DATA_PATH
 
 
 def load_data():
@@ -26,61 +45,44 @@ def load_data():
 # --- Course Features ---
 
 def add_price_band(df):
-    """Bin CoursePrice into descriptive bands."""
-    bins = [-0.01, 0, 50, 100, 200, 500]
-    labels = ['Free', 'Budget', 'Standard', 'Premium', 'Elite']
-    df['PriceBand'] = pd.cut(df['CoursePrice'], bins=bins, labels=labels)
-    df['PriceBand'] = df['PriceBand'].astype(str)
+    """Bin CoursePrice into the canonical shared bands."""
+    df['PriceBand'] = df['CoursePrice'].apply(price_band)
     return df
 
 
 def add_duration_bucket(df):
-    """Bucket CourseDuration into short/medium/long segments."""
-    bins = [0, 10, 25, 50, 200]
-    labels = ['Short', 'Medium', 'Long', 'Extended']
-    df['DurationBucket'] = pd.cut(df['CourseDuration'], bins=bins, labels=labels)
-    df['DurationBucket'] = df['DurationBucket'].astype(str)
+    """Bucket CourseDuration using the canonical shared buckets."""
+    df['DurationBucket'] = df['CourseDuration'].apply(duration_bucket)
     return df
 
 
 def add_rating_tier(df):
     """Classify CourseRating into tiers."""
-    def tier(r):
-        if r >= 4.5:
-            return 'Elite'
-        elif r >= 4.0:
-            return 'High'
-        elif r >= 3.0:
-            return 'Medium'
-        else:
-            return 'Low'
-    df['RatingTier'] = df['CourseRating'].apply(tier)
+    df['RatingTier'] = df['CourseRating'].apply(rating_tier)
     return df
 
 
-def encode_course_level(df):
+def _encode_course_level_col(df):
     """Ordinal encode CourseLevel."""
-    level_map = {'Beginner': 1, 'Intermediate': 2, 'Advanced': 3}
-    df['EncodedCourseLevel'] = df['CourseLevel'].map(level_map).fillna(1).astype(int)
+    df['EncodedCourseLevel'] = df['CourseLevel'].apply(_encode_course_level_fn).astype(int)
     return df
+
+
+# Backward compatibility export for tests
+encode_course_level = _encode_course_level_col
 
 
 # --- Instructor Features ---
 
 def add_experience_bucket(df):
     """Bucket teacher YearsOfExperience."""
-    bins = [-1, 2, 5, 10, 50]
-    labels = ['Junior', 'Mid', 'Senior', 'Expert']
-    df['ExperienceBucket'] = pd.cut(df['YearsOfExperience'], bins=bins, labels=labels)
-    df['ExperienceBucket'] = df['ExperienceBucket'].astype(str)
+    df['ExperienceBucket'] = df['YearsOfExperience'].apply(experience_bucket)
     return df
 
 
 def add_teacher_rating_score(df):
-    """Normalize TeacherRating to 0-1 scale."""
-    min_r = df['TeacherRating'].min()
-    max_r = df['TeacherRating'].max()
-    df['TeacherRatingScore'] = (df['TeacherRating'] - min_r) / (max_r - min_r + 1e-9)
+    """Normalize TeacherRating with the fixed 1-5 scale used at inference."""
+    df['TeacherRatingScore'] = df['TeacherRating'].apply(teacher_rating_score)
     return df
 
 
@@ -100,18 +102,7 @@ def add_time_features(df):
     df['DayOfWeek'] = df['TransactionDate'].dt.dayofweek
     df['WeekOfYear'] = df['TransactionDate'].dt.isocalendar().week.astype(int)
     df['IsWeekend'] = (df['DayOfWeek'] >= 5).astype(int)
-
-    # Seasonality: Q1=Jan-Mar (New Year rush), Q3=Jul-Sep (summer), Q4=Oct-Dec (year-end)
-    def seasonality(q):
-        if q == 1:
-            return 'NewYearRush'
-        elif q == 2:
-            return 'Spring'
-        elif q == 3:
-            return 'Summer'
-        else:
-            return 'YearEnd'
-    df['SeasonalityLabel'] = df['Quarter'].apply(seasonality)
+    df['SeasonalityLabel'] = df['Quarter'].apply(seasonality_label)
     return df
 
 
@@ -155,8 +146,13 @@ def add_rolling_revenue(df):
 
 
 def run_feature_engineering():
-    """Execute complete feature engineering pipeline."""
+    """Execute complete feature engineering pipeline.
+
+    Engineered columns are dropped first so rerunning the step does not create
+    duplicate ``_x``/``_y`` columns. The output is written atomically.
+    """
     df = load_data()
+    df = df.drop(columns=[c for c in ENGINEERED_COLUMNS if c in df.columns])
 
     df = add_price_band(df)
     df = add_duration_bucket(df)
@@ -171,7 +167,9 @@ def run_feature_engineering():
     df = add_historical_features(df)
     df = add_rolling_revenue(df)
 
-    df.to_csv(OUTPUT_PATH, index=False)
+    temp_path = f"{OUTPUT_PATH}.tmp"
+    df.to_csv(temp_path, index=False)
+    os.replace(temp_path, OUTPUT_PATH)
     print(f"Feature-engineered dataset saved: {OUTPUT_PATH}")
     print(f"Shape: {df.shape}")
     print(f"New columns: {[c for c in df.columns if c not in ['TransactionID','UserID','CourseID','TeacherID']]}")

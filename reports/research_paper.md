@@ -6,9 +6,9 @@
 
 ## Abstract
 
-This paper presents a comprehensive predictive analytics system developed for EduPro, an online education platform. The system integrates multi-table relational data across users, teachers, courses, and transactions to build machine learning models capable of forecasting course enrollment demand and transaction-level revenue. Advanced feature engineering techniques generate over 20 derived predictive signals, including price sensitivity bands, instructor performance scores, rolling revenue averages, and temporal seasonality indicators. Regression models ranging from linear baselines to ensemble methods including Random Forest, Gradient Boosting, and XGBoost Regressor are trained and compared. Time-series forecasting using the Prophet model projects six-month revenue and enrollment trajectories. Explainability is addressed through SHAP (SHapley Additive exPlanations) analysis, revealing that course price, teacher rating, and course category are the dominant demand drivers. The system is deployed as a production Streamlit dashboard providing interactive prediction, forecasting, and strategic insight interfaces.
+This paper presents a Phase 1 audit and remediation of a predictive analytics project for EduPro, an online education platform. The checked-in data contain 10,000 transactions across 60 courses and 60 instructors. The original project trained a transaction-level revenue model and a course-level enrollment model. The revenue target is an accounting identity: `Amount == CoursePrice` for every paid transaction and `Amount == 0` for every free transaction, so the reported R² = 1.0 reflects target leakage rather than predictive skill. Enrollment is near-uniform and the model does not beat a mean baseline. This paper therefore reports data-verified business facts, documents the invalidity of the legacy models, and replaces the pricing optimum with a transparent arithmetic scenario analysis. The Streamlit dashboard is a research/demo prototype, not a production forecasting system.
 
-**Keywords:** Online education, predictive analytics, XGBoost, revenue forecasting, Prophet, SHAP, Streamlit, feature engineering
+**Keywords:** Online education, target leakage, baseline comparison, pricing scenarios, forecast validation, Streamlit
 
 ---
 
@@ -20,11 +20,11 @@ EduPro operates a multi-category course marketplace offering both free and paid 
 
 The primary contributions of this work are:
 
-1. A reproducible end-to-end data science pipeline from raw Excel data to trained production models.
+1. A reproducible research pipeline from raw Excel data to auditable diagnostics and baseline comparisons.
 2. A feature engineering framework generating 20+ business-relevant predictive signals.
 3. A comparative evaluation of six regression algorithms across two prediction tasks.
 4. A six-month Prophet-based revenue and enrollment forecast with category-level granularity.
-5. A production-grade Streamlit dashboard enabling non-technical stakeholders to interact with model outputs.
+5. A Streamlit dashboard that exposes data facts and model limitations to non-technical stakeholders.
 
 ---
 
@@ -63,7 +63,7 @@ The EduPro dataset is structured as a relational Excel workbook containing four 
 ### 3.4 Transactions
 - **Records:** 10,000 transactions
 - **Features:** TransactionID, UserID, CourseID, TransactionDate, Amount, PaymentMethod, TeacherID
-- **Notes:** Date range spans January 1 to December 30, 2025. Approximately 50% of transactions are free enrollments (Amount = 0). Three payment methods are represented: Credit Card, PayPal, and Bank Transfer.
+- **Notes:** Date range spans January 1 to December 30, 2025. Free transactions are 64.03% (6,403 of 10,000); paid are 35.97% (3,597). Three payment methods are represented: Credit Card, PayPal, and Bank Transfer.
 
 ---
 
@@ -76,7 +76,7 @@ The project follows a structured CRISP-DM workflow:
 3. **Data Preparation:** Sheet merging, type correction, missing value handling, outlier analysis.
 4. **Feature Engineering:** Derivation of 20+ engineered signals from raw fields.
 5. **Modeling:** Training and hyperparameter tuning of six regression algorithms.
-6. **Evaluation:** MAE, RMSE, and R² scoring with cross-validation and residual analysis.
+6. **Evaluation:** MAE, RMSE, and R² with training-only cross-validation, a single final test evaluation, and an explicit mean baseline.
 7. **Deployment:** Streamlit multi-page dashboard for interactive inference and visualization.
 
 ---
@@ -90,7 +90,7 @@ The four sheets are merged into a single analytical dataframe using the followin
 - **Teachers** is joined on TeacherID (left join, 100% match rate).
 - **Users** is joined on UserID, retaining Age and Gender columns only.
 
-The resulting merged dataset contains 22 columns and 10,000 rows with no data loss.
+The merged dataset contains 22 columns and 10,000 rows before feature engineering; the checked-in `processed_data.csv` contains 44 columns after feature engineering.
 
 ### 5.2 Data Quality Assessment
 - **Duplicate rows:** Zero duplicates detected.
@@ -101,21 +101,21 @@ The resulting merged dataset contains 22 columns and 10,000 rows with no data lo
 IQR-based outlier detection identifies 1,666 outliers (16.7%) in the Amount column, attributable to the bimodal distribution created by free (Amount=0) and paid transactions. This is a structural characteristic of the business model, not a data quality issue. TeacherRating contains 285 outliers (2.9%) on the lower tail. No values are clipped or removed, as outliers represent genuine business observations.
 
 ### 5.4 Correlation Analysis
-Pearson correlations among numeric features reveal a near-perfect correlation (r=0.997) between CoursePrice and Amount, confirming that price is the primary revenue driver. CourseRating and TeacherRating show moderate positive correlation (r=0.31), suggesting instructor quality influences course ratings.
+Pearson correlation between CoursePrice and Amount is approximately 1.0, but this is an accounting identity: Amount equals CoursePrice for paid transactions and is zero for free transactions. It is not evidence of an independent predictive relationship. CourseRating and TeacherRating show moderate positive correlation (r=0.31), but this does not establish a causal effect on enrollment or revenue.
 
 ---
 
 ## 6. Feature Engineering
 
 ### 6.1 Course Features
-- **PriceBand:** Ordinal categorical segmentation of CoursePrice into five bins: Free ($0), Budget ($0–50), Standard ($50–100), Premium ($100–200), and Elite ($200+). Enables non-linear price effects to be captured by tree-based models.
+- **PriceBand:** Ordinal categorical segmentation of CoursePrice into five bins: Free ($0), Budget ($0–50], Standard ($50–100], Premium ($100–200], and Elite ($200–500]. The same boundaries are used at training and inference.
 - **DurationBucket:** Segmentation of CourseDuration into Short (<10h), Medium (10–25h), Long (25–50h), and Extended (50h+).
 - **RatingTier:** Ordinal classification of CourseRating into Low (<3.0), Medium (3.0–4.0), High (4.0–4.5), and Elite (4.5+).
 - **EncodedCourseLevel:** Ordinal integer encoding of Beginner=1, Intermediate=2, Advanced=3.
 
 ### 6.2 Instructor Features
 - **ExperienceBucket:** Segmentation of YearsOfExperience into Junior (0–2), Mid (2–5), Senior (5–10), and Expert (10+).
-- **TeacherRatingScore:** Min-max normalization of TeacherRating to [0,1] scale for numeric stability.
+- **TeacherRatingScore:** Fixed normalization of TeacherRating from the 1–5 scale to [0,1], shared by training and inference.
 - **ExpertiseCategoryMatch:** Binary flag indicating whether the teacher's expertise domain matches the course category (1=match, 0=mismatch).
 
 ### 6.3 Time-Based Features
@@ -145,10 +145,10 @@ Per-course aggregations computed across all transactions:
 
 **Model 1 — Enrollment Count Prediction:** The target is the number of transactions (enrollments) per CourseID, derived by aggregating the transaction table at course level. This is a cross-sectional regression problem with 60 course-level observations.
 
-**Model 2 — Transaction Revenue Prediction:** The target is the Amount field at the individual transaction level (10,000 observations). Free transactions (Amount=0) are included to model the propensity for paid versus free enrollment across feature combinations.
+**Model 2 — Transaction Revenue Prediction (retired):** The original target was the Amount field at the individual transaction level. Because `Amount == CoursePrice` for all paid rows and `Amount == 0` for all free rows, and because CoursePrice was also a feature, the model reconstructed an accounting identity. No revenue regressor is trained or used in Phase 1. The legacy `models/revenue_model.pkl` is preserved for audit only.
 
 ### 7.2 Feature Preparation
-A scikit-learn ColumnTransformer applies StandardScaler to 11 numeric features and OneHotEncoder (handle_unknown='ignore') to 8 categorical features. The resulting sparse feature matrix is fed into a Pipeline for each model.
+The Phase 1 enrollment model uses 7 course-configuration numeric features and 6 categorical features through a scikit-learn ColumnTransformer with StandardScaler and OneHotEncoder (dense output). Transaction-only fields (PaymentMethod, month, quarter, weekend) and ExpertiseCategoryMatch are excluded because they are not stable course-level inputs.
 
 ### 7.3 Algorithms
 
@@ -162,13 +162,9 @@ A scikit-learn ColumnTransformer applies StandardScaler to 11 numeric features a
 - **Gradient Boosting Regressor (n_estimators=200):** Sequential boosting with additive residual correction.
 - **XGBoost Regressor (n_estimators=200):** Regularized gradient boosting with histogram-based tree construction.
 
-### 7.4 Hyperparameter Tuning
-XGBoost is tuned using RandomizedSearchCV (n_iter=20, cv=3) over the following parameter grid:
-- n_estimators: [100, 200, 300]
-- max_depth: [3, 5, 7]
-- learning_rate: [0.05, 0.1, 0.2]
-- subsample: [0.7, 0.8, 1.0]
-- colsample_bytree: [0.7, 0.8, 1.0]
+### 7.4 Phase 1 Evaluation Protocol
+
+A single train/test split is used. Candidate enrollment models are compared using 5-fold cross-validation on the training split only. The selected candidate is evaluated once on the test split and compared with a `DummyRegressor` mean baseline. If it does not beat the baseline on both cross-validation and the final test, no Phase 1 model artifact is saved. Hyperparameter tuning is not used to select a model on the test set.
 
 ---
 
@@ -180,30 +176,29 @@ Model performance is measured using three standard regression metrics:
 - **Root Mean Squared Error (RMSE):** Square root of mean squared error. Penalizes large prediction errors more heavily than MAE.
 - **R² Score:** Coefficient of determination. Indicates the proportion of target variance explained by the model. A score of 1.0 indicates perfect prediction; 0.0 indicates the model performs no better than predicting the mean.
 
-Cross-validation (cv=3) is used to assess model generalization. Residual plots and prediction versus actual scatter plots provide visual diagnostics for heteroscedasticity and systematic bias.
+Cross-validation (5 folds) is used on the training split for model selection. The test split is touched once. The legacy revenue plots are not regenerated because the revenue target is invalid.
 
 ---
 
 ## 9. Results
 
-### 9.1 Revenue Prediction (Model 2)
+### 9.1 Revenue Prediction (Retired)
 
-All six models achieve an R² of 1.0 on the revenue prediction task, with MAE and RMSE near zero. This result reflects the near-deterministic relationship between CoursePrice and transaction Amount in the dataset. When a course is paid, the Amount equals CoursePrice; when free, Amount is zero. This makes CoursePrice a near-perfect predictor of Amount in this dataset.
+The original revenue model achieved R² = 1.0 because the target is an accounting identity: `Amount == CoursePrice` for all 3,597 paid rows and `Amount == 0` for all 6,403 free rows. CoursePrice was also a feature. This is target leakage, not predictive skill.
 
-**Practical Implication:** The revenue model is highly reliable for predicting individual transaction values given course attributes. Business value lies in combining this with enrollment volume predictions to project total revenue.
+**Practical Implication:** The legacy revenue model and its feature-importance/SHAP claims are not valid for pricing, revenue forecasting, or ROI analysis. Expected revenue in the dashboard is now calculated arithmetically as price × reference enrollments for paid courses, with explicit assumptions.
 
-### 9.2 Enrollment Prediction (Model 1)
+### 9.2 Enrollment Prediction (Baseline Comparison)
 
-Given the small number of courses (60) and inherent randomness in enrollment distribution, enrollment prediction is a harder problem:
-- Random Forest achieves the best R² (-0.003 on initial split, 0.0002 after tuning).
-- All linear models show negative R², indicating enrollment count is not well-explained by a linear combination of static course attributes alone.
-- The low R² is expected and business-relevant: enrollment demand is influenced by marketing, timing, and external factors not captured in the dataset.
+There are only 60 course-level observations. Enrollment ranges from 140 to 196 (mean 166.7, standard deviation 12.4; CV 7.5%). A global-mean baseline has MAE 10.02 and RMSE 12.42. A category-mean baseline is worse (MAE 11.13, R² -0.21).
 
-**Practical Implication:** The enrollment model provides directional estimates useful for planning. Its confidence intervals should be communicated to stakeholders alongside point estimates.
+Phase 1 compares candidate models with a mean baseline using 5-fold cross-validation on the training split and one final test evaluation. The baseline achieved CV RMSE 12.27 and test RMSE 13.73. The selected Random Forest achieved CV RMSE 13.05 and test RMSE 14.07, so it did not beat the baseline on either criterion and was not persisted. The dashboard shows the historical reference mean and 10th–90th percentile range instead.
 
-### 9.3 Revenue Forecasting
+**Practical Implication:** The available static course features do not support useful course-level enrollment prediction. Marketing, timing, and learner-level factors are not captured in the dataset.
 
-Prophet models trained on 12 months of historical data project the following six-month revenue trajectory (January–June 2026):
+### 9.3 Revenue Forecasting (Cached, Unbacktested)
+
+The following values are cached Prophet output, not validated forecasts. No rolling-origin backtest has been performed:
 
 | Month | Projected Revenue ($) |
 |-------|----------------------|
@@ -214,53 +209,57 @@ Prophet models trained on 12 months of historical data project the following six
 | May 2026 | 30,418 |
 | Jun 2026 | 51,761 |
 
-March 2026 is projected as the peak revenue month, consistent with Q1 learning behavior patterns. May 2026 shows a predicted trough, which may reflect seasonality rather than structural decline.
-
-Monthly enrollment forecast (Jan–Jun 2026) projects 1,200–1,750 enrollments per month, with January 2026 showing the highest expected enrollment at approximately 1,750.
+The cached output shows March 2026 as the highest month, but this is not independently validated. The historical data do not show a clear Q1 peak. Monthly enrollment forecast values are likewise cached and unbacktested.
 
 ---
 
 ## 10. Business Insights
 
-### 10.1 Pricing Optimization
-The near-perfect alignment between CoursePrice and Amount confirms that EduPro's pricing is a primary revenue lever. Categories with high average ratings and experienced instructors can support premium pricing without enrollment penalty. The pricing sensitivity analysis in the dashboard enables scenario planning for price point optimization.
+### 10.1 Pricing
+
+The dataset has 22 paid prices, one per paid course, and no within-course price changes. Paid price/enrollment correlation is -0.022. Price elasticity is not identifiable. The dashboard therefore provides arithmetic what-if scenarios with an explicit assumed enrollment change, not an optimal price or an estimated demand curve. A controlled pricing experiment is required before causal pricing decisions.
 
 ### 10.2 Instructor Allocation
-TeacherRating and YearsOfExperience are among the top SHAP contributors to revenue prediction. Allocating highly-rated, experienced instructors to high-demand, high-price categories maximizes expected revenue per course.
+
+The legacy SHAP/feature-importance results are invalid because the revenue target is an accounting identity and the legacy enrollment model does not beat a mean baseline. No instructor-effect recommendation is supported by Phase 1 evidence.
 
 ### 10.3 Category Strategy
-Artificial Intelligence, Machine Learning, and Data Science categories show the highest total revenue and strongest growth trajectories. Strategic investment—additional courses, marketing spend, and instructor recruitment—in these categories should yield disproportionate revenue returns.
+
+Artificial Intelligence ($202,750.67), Business ($181,527.58), and Project Management ($169,103.21) are the top three revenue categories, together 60.72% of total revenue. Machine Learning revenue is $133.38 (0.0146%) and Marketing revenue is $0.00. Category investment should follow these verified totals, not the original AI/ML/Data Science claim.
 
 ### 10.4 Free-to-Paid Conversion
-Approximately 50% of enrollments are free, representing a significant untapped revenue pool. Targeted conversion campaigns—offering limited-time discounts, bundled pricing, or certification incentives—on popular free courses could materially increase platform revenue without requiring new user acquisition.
+
+Free transactions are 64.03% (6,403 of 10,000). However, paid/free is a course-level attribute: 22 courses are paid and 38 are free, with no mixed courses. There is no observed learner-level free-to-paid conversion in this dataset, so a conversion uplift cannot be estimated.
 
 ### 10.5 Seasonal Planning
-Q1 (January–March) consistently shows the highest revenue and enrollment volumes, driven by New Year learning resolutions and corporate training budget releases. Marketing campaigns and new course launches should be concentrated in November–December to capture Q1 demand surge.
+
+Q1 and Q2 revenue are effectively equal: $231,643.16 versus $231,406.06. Q2 has slightly more enrollments (2,555 versus 2,456). A Q1 surge is not supported by the checked-in data.
 
 ---
 
 ## 11. Conclusion
 
-This project demonstrates the feasibility and business value of applying machine learning and time-series forecasting to online education platform data. The developed system provides EduPro with:
+This Phase 1 audit demonstrates why model validation and target definition matter more than a high R². The project provides EduPro with:
 
-1. Transaction-level revenue prediction with near-perfect accuracy.
-2. Course-level enrollment estimation to support capacity planning.
-3. Six-month revenue and enrollment forecasts with confidence intervals.
-4. An interactive dashboard enabling business users to explore predictions, sensitivity analyses, and category-level insights without requiring technical expertise.
+1. A documented revenue target-leakage finding and retirement of the invalid revenue model.
+2. A baseline comparison showing that static course features do not support useful enrollment prediction.
+3. Data-verified portfolio facts and transparent arithmetic price scenarios.
+4. A dashboard that exposes model limitations instead of presenting false precision.
 
-The production-grade pipeline is reproducible, modular, and extensible, providing a foundation for continuous improvement as additional data becomes available.
+The pipeline is a research/demo prototype, not a production forecasting system.
 
 ---
 
 ## 12. Future Work
 
-1. **Real-time inference:** Integrate the model pipeline with EduPro's transaction API for live prediction updates.
-2. **User-level personalization:** Incorporate user engagement history (repeat purchases, session duration, completion rates) to build individual demand propensity models.
-3. **NLP course analysis:** Apply text embeddings to course descriptions and reviews to generate semantic features that supplement tabular predictors.
-4. **Dynamic pricing engine:** Implement a reinforcement learning or bandit-based pricing optimization system that adjusts prices in real time based on demand signals.
-5. **Churn prediction:** Develop a user churn propensity model to identify at-risk learners and trigger retention campaigns.
-6. **Multi-horizon forecasting:** Extend Prophet forecasts to 12-month horizons with scenario simulation (optimistic/base/pessimistic).
-7. **Automated retraining:** Implement MLflow or Weights & Biases pipelines for automatic model retraining on monthly data refreshes.
+1. **Controlled pricing experiment:** Randomize prices within courses over time before attempting any elasticity or revenue-optimization model.
+2. **Real-time inference:** Integrate a validated model pipeline with EduPro's transaction API for live prediction updates.
+3. **User-level personalization:** Incorporate user engagement history (repeat purchases, session duration, completion rates) to build individual demand propensity models.
+4. **NLP course analysis:** Apply text embeddings to course descriptions and reviews to generate semantic features that supplement tabular predictors.
+5. **Dynamic pricing engine:** Implement a reinforcement learning or bandit-based pricing system only after a controlled experiment establishes measurable demand response.
+6. **Churn prediction:** Develop a user churn propensity model to identify at-risk learners and trigger retention campaigns.
+7. **Multi-horizon forecasting:** Backtest Prophet and extend validated forecasts to 12-month horizons with scenario simulation (optimistic/base/pessimistic).
+8. **Automated retraining:** Implement MLflow or Weights & Biases pipelines for automatic model retraining on monthly data refreshes.
 
 ---
 

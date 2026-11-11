@@ -8,14 +8,11 @@ pricing, teacher performance, time trends, payment methods, demographics.
 """
 
 import pandas as pd
-import numpy as np
 import os
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
-import warnings
-warnings.filterwarnings('ignore')
 
 DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed_data.csv')
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'reports')

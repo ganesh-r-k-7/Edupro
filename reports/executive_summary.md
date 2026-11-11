@@ -9,13 +9,13 @@
 
 ## Overview
 
-EduPro operates a growing online education marketplace across twelve subject categories, serving thousands of learners through a portfolio of 60 courses delivered by 60 instructors. This initiative delivers an AI-powered analytics platform that transforms EduPro's transactional data into forward-looking revenue forecasts, demand predictions, and strategic business intelligence.
+EduPro operates a growing online education marketplace across twelve subject categories, serving thousands of learners through a portfolio of 60 courses delivered by 60 instructors. This Phase 1 review separates data-verified facts from model claims. The available dataset supports portfolio reporting, a historical enrollment reference, and transparent arithmetic price scenarios. It does not support a personalized demand forecast or an estimated price elasticity.
 
-The platform provides decision-makers with tools to answer three critical business questions:
+The dashboard currently addresses three questions with explicit limitations:
 
-1. How many learners will enroll in a given course?
-2. What revenue will that course generate?
-3. How will platform and category revenues evolve over the next six months?
+1. What is a typical course enrollment in the historical data?
+2. What is expected revenue under a stated enrollment assumption?
+3. What cached six-month forecast exists, and why is it not yet validated?
 
 ---
 
@@ -28,7 +28,7 @@ Despite generating over 10,000 transactions in 2025, EduPro lacks systematic too
 - Pricing inefficiencies that leave revenue on the table
 - Course launch failures due to insufficient demand validation
 
-This platform directly addresses each of these risks.
+Phase 1 tests whether the available data can support these decisions. It finds that revenue prediction is invalid because the target is an accounting identity, and that enrollment is too uniform for the model to beat a mean baseline.
 
 ---
 
@@ -36,11 +36,13 @@ This platform directly addresses each of these risks.
 
 ### Revenue Performance (2025)
 
-The platform generated substantial paid revenue from approximately 50% of total transactions, while the remaining 50% represent free course enrollments that offer significant upsell potential. Revenue concentration is notable: the top three course categories (Artificial Intelligence, Machine Learning, Data Science) account for a disproportionate share of total platform revenue.
+Free transactions are **64.03%** of the data (6,403 of 10,000) and paid transactions are **35.97%** (3,597). Paid/free is determined at the course level: 22 courses are paid and 38 are free, with no mixed courses. Total revenue is **$911,323.47**.
 
-### Revenue Forecast (January–June 2026)
+The top three revenue categories are **Artificial Intelligence ($202,750.67)**, **Business ($181,527.58)**, and **Project Management ($169,103.21)**, together **60.72%** of revenue. **Machine Learning revenue is $133.38 (0.0146%)** and **Marketing revenue is $0.00**. A 50% free share and AI/ML/Data Science leadership are not supported by the checked-in data.
 
-The Prophet time-series model projects the following revenue outlook:
+### Revenue Forecast (January–June 2026) — Cached, Unbacktested
+
+The following values are cached Prophet output. They have not been backtested and are not validated forecasts:
 
 | Month | Projected Revenue |
 |-------|------------------|
@@ -51,39 +53,39 @@ The Prophet time-series model projects the following revenue outlook:
 | May 2026 | $30,418 |
 | June 2026 | $51,761 |
 
-March 2026 is projected as the highest-revenue month, consistent with Q1 learning demand patterns. The May dip reflects seasonal behavior and should inform promotional planning.
+The cached output shows March 2026 as the highest month, but this claim is not independently validated. Do not use it for planning until a backtest is completed.
 
 ### Enrollment Forecast (January–June 2026)
 
-Monthly enrollments are projected between 1,200 and 1,750 per month, with January 2026 forecast as the peak enrollment period. Q1 consistently exhibits the strongest demand, driven by New Year learning intentions and corporate training budget deployments.
+The cached enrollment forecast projects 1,200–1,750 enrollments per month, but it is unbacktested. The historical data does **not** show a clear Q1 peak: Q1 had 2,456 enrollments and $231,643.16 revenue; Q2 had 2,555 and $231,406.06.
 
 ---
 
 ## Strategic Recommendations
 
-### 1. Prioritize AI, Machine Learning, and Data Science Investment
+### 1. Prioritize the Actual Top Categories
 
-These three categories demonstrate the highest revenue performance and growth trajectories. EduPro should accelerate course development, recruit high-rated instructors, and allocate marketing resources disproportionately to these categories in the near term.
+Artificial Intelligence, Business, and Project Management are the three largest revenue categories. Machine Learning ($133.38) and Marketing ($0.00) are not supported as leading investment areas by this dataset.
 
-### 2. Implement Tiered Pricing Strategy
+### 2. Do Not Optimize Price from This Dataset
 
-Machine learning analysis confirms that CoursePrice is the primary revenue driver. Courses in high-demand categories with strong instructor ratings can support premium pricing ($200–$490) without enrollment decline. A structured tiered pricing model—aligned with course level, category, and instructor quality—is expected to increase revenue per paid enrollment without requiring additional user acquisition.
+The dataset has 22 paid prices, one per paid course, and no within-course price changes. Paid price/enrollment correlation is -0.022. Demand response is not identifiable, so the dashboard provides arithmetic what-if scenarios and does not recommend an optimal price. Use a controlled pricing experiment before changing prices.
 
-### 3. Improve Free-to-Paid Conversion
+### 3. Treat Free/Paid as a Portfolio Split, Not Conversion
 
-Approximately 5,000 of 10,000 transactions are free enrollments. Converting even 10% of these learners to paid tiers—through limited-time certification offers, bundled course discounts, or loyalty programs—would materially increase revenue without incremental user acquisition cost.
+Free transactions are 64.03%, but paid/free is a course-level attribute in this dataset. There is no observed free-to-paid learner conversion. Conversion campaigns require data that tracks individual learners across course types.
 
-### 4. Optimize Instructor Allocation
+### 4. Do Not Infer Instructor Effects from the Legacy Model
 
-SHAP analysis identifies teacher rating and years of experience as top predictors of course revenue. Assigning the highest-rated, most experienced instructors to premium-priced courses in high-growth categories maximizes revenue per instructor. Low-rated instructors should be supported with structured coaching or reassigned to free-tier course delivery.
+The legacy revenue model is retired due to target leakage, and its SHAP/feature-importance output is not valid evidence. No instructor-quality recommendation is supported until a model beats a baseline on a valid holdout.
 
-### 5. Concentrate Marketing Around Q1
+### 5. Do Not Plan Around a Q1 Surge
 
-The Q1 revenue surge (January–March) is the most reliable and predictable demand pattern in the dataset. Marketing campaigns, promotional pricing, and new course launches should be concentrated in November–December to capture this seasonal demand peak. Q3 (July–September) presents a secondary opportunity aligned with summer learning behaviors.
+Q1 and Q2 revenue are effectively equal ($231,643 vs $231,406), and Q2 has slightly more enrollments. A Q1 seasonal surge is not supported by simple aggregates.
 
-### 6. New Course Launch Validation
+### 6. Use Reference Estimates, Not Thresholds, for Course Launch
 
-The Demand Prediction module in the EduPro Analytics Dashboard enables quantitative pre-launch demand and revenue estimation for proposed courses. All future course launches should be validated against model-predicted enrollment and revenue thresholds before instructional design investment is committed.
+The Demand Prediction module now shows a historical enrollment reference with a 10th–90th percentile range. It does not provide a personalized demand prediction. Course launches should be validated with a controlled pilot, not with model thresholds.
 
 ---
 
@@ -94,16 +96,16 @@ The EduPro Analytics Dashboard provides five interactive modules:
 | Module | Function |
 |--------|----------|
 | Executive Dashboard | Real-time KPIs, revenue trends, and enrollment overview |
-| Course Demand Prediction | On-demand enrollment and revenue prediction for any course configuration |
-| Revenue Forecasting | Six-month forward revenue and enrollment projections with confidence intervals |
-| Feature Importance Explorer | SHAP-based insight into the drivers of demand and revenue |
-| Category Analytics | Deep-dive profitability, growth, and course-level performance by category |
+| Course Demand Prediction | Historical enrollment reference plus transparent price what-if scenarios |
+| Revenue Forecasting | Cached six-month Prophet output, explicitly labelled unbacktested |
+| Feature Importance Explorer | Model-validity status and descriptive enrollment associations |
+| Category Analytics | Deep-dive revenue efficiency, teacher associations, growth, and course-level performance by category |
 
 ---
 
 ## Implementation Roadmap
 
-**Phase 1 (Complete):** Core pipeline — data preprocessing, feature engineering, model training, forecasting, and dashboard deployment.
+**Phase 1 (Remediation complete):** Core pipeline plus correction of the revenue target, pricing claims, prediction inputs, and report facts.
 
 **Phase 2 (Recommended, 60–90 days):** Integration of real-time transaction feeds for live dashboard updates; automated monthly model retraining.
 
@@ -113,16 +115,12 @@ The EduPro Analytics Dashboard provides five interactive modules:
 
 ## Return on Investment
 
-Based on platform revenue data and forecast projections, the following revenue improvement scenarios are estimated:
-
-- **Pricing optimization alone:** 8–15% revenue increase by aligning prices with model-recommended tiers.
-- **Free-to-paid conversion (10% rate):** Estimated additional revenue representing a significant uplift on current paid transaction base.
-- **Q1 marketing concentration:** 5–10% incremental Q1 revenue by front-loading marketing budget to capture peak demand.
+No ROI or uplift figures are estimated in Phase 1. The data does not identify price response, and there is no observed learner-level free-to-paid conversion. The earlier 8–15% pricing and 5–10% Q1 marketing figures were unsupported and have been removed.
 
 ---
 
 ## Conclusion
 
-This predictive analytics platform transforms EduPro's data asset into a strategic decision-support system. By combining machine learning demand forecasting with time-series revenue projection and an intuitive interactive dashboard, EduPro's leadership team gains the tools needed to make faster, more accurate, and more profitable decisions across pricing, instructor management, course development, and marketing strategy.
+This Phase 1 platform is a research/demo decision-support prototype. It reliably reports checked-in portfolio facts and exposes the limits of the available data. It does not provide validated demand or revenue forecasts, and it is not production-ready.
 
-The platform is production-ready, fully documented, and designed for continuous improvement as additional transaction data accumulates.
+Progress requires a controlled pricing experiment, learner-level conversion data, forecast backtesting, and a model that beats a simple baseline under a valid holdout.
