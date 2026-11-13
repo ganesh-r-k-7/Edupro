@@ -1,0 +1,30 @@
+# Python environments
+.venv/
+.venv-*/
+venv/
+__pycache__/
+*.py[cod]
+
+# Secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Backups
+backups/
+*.tar.gz
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
