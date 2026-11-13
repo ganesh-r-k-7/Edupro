@@ -6,14 +6,13 @@ Generates executive summary and research paper from data.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any
-
 import pandas as pd
 
-from edup.config import REPORTS_DIR, MODELS_DIR
-from edup.analytics import compute_business_facts, amount_price_identity_summary, enrollment_reference
+from edup.analytics import (
+    amount_price_identity_summary,
+    compute_business_facts,
+    enrollment_reference,
+)
 from edup.data import load_processed_data
 
 
@@ -42,26 +41,28 @@ def generate_executive_summary(df: pd.DataFrame | None = None) -> str:
     for cat, rev in facts["category_revenue"].items():
         lines.append(f"- **{cat}:** ${rev:,.2f}")
 
-    lines.extend([
-        "\n## Top 3 Revenue Categories",
-        f"{', '.join(facts['top3_categories'])} — {facts['top3_share_pct']:.2f}% of total revenue\n",
-        "## Key Data Facts\n",
-        f"- Machine Learning Revenue: ${facts['machine_learning_revenue']:,.2f}",
-        f"- Marketing Revenue: ${facts['marketing_revenue']:,.2f}",
-        f"- Amount/Price Identity: {'Holds' if identity['identity_holds'] else 'Violated'}",
-        f"- Paid/Free is Course-Level: {'Yes' if identity['paid_free_is_course_level'] else 'No'}\n",
-        "## Enrollment Reference\n",
-        f"- **Mean Enrollments per Course:** {enrollment['mean']:.1f}",
-        f"- **Range (10th–90th percentile):** {enrollment['p10']:.0f}–{enrollment['p90']:.0f}",
-        f"- **Courses Analyzed:** {enrollment['n_courses']}\n",
-        "## Model Status\n",
-        "- Revenue Model: Retired (target leakage — accounting identity)",
-        "- Enrollment Model: Baseline comparison only (no model beats mean baseline)\n",
-        "## Forecast\n",
-        "- Prophet forecast cached but not backtested; treat as illustrative only.\n",
-        "---\n",
-        "*This summary is generated from data. Run `python run_pipeline.py` to regenerate.*",
-    ])
+    lines.extend(
+        [
+            "\n## Top 3 Revenue Categories",
+            f"{', '.join(facts['top3_categories'])} — {facts['top3_share_pct']:.2f}% of total revenue\n",
+            "## Key Data Facts\n",
+            f"- Machine Learning Revenue: ${facts['machine_learning_revenue']:,.2f}",
+            f"- Marketing Revenue: ${facts['marketing_revenue']:,.2f}",
+            f"- Amount/Price Identity: {'Holds' if identity['identity_holds'] else 'Violated'}",
+            f"- Paid/Free is Course-Level: {'Yes' if identity['paid_free_is_course_level'] else 'No'}\n",
+            "## Enrollment Reference\n",
+            f"- **Mean Enrollments per Course:** {enrollment['mean']:.1f}",
+            f"- **Range (10th–90th percentile):** {enrollment['p10']:.0f}–{enrollment['p90']:.0f}",
+            f"- **Courses Analyzed:** {enrollment['n_courses']}\n",
+            "## Model Status\n",
+            "- Revenue Model: Retired (target leakage — accounting identity)",
+            "- Enrollment Model: Baseline comparison only (no model beats mean baseline)\n",
+            "## Forecast\n",
+            "- Prophet forecast cached but not backtested; treat as illustrative only.\n",
+            "---\n",
+            "*This summary is generated from data. Run `python run_pipeline.py` to regenerate.*",
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -101,14 +102,14 @@ def generate_research_paper(df: pd.DataFrame | None = None) -> str:
         f"Course-level `EnrollmentCount` aggregated from {enrollment['n_courses']} courses. "
         f"Distribution: mean={enrollment['mean']:.1f}, std={enrollment['std']:.1f}, "
         f"range=[{enrollment['min']:.0f}, {enrollment['max']:.0f}]. "
-        f"Coefficient of variation: {enrollment['std']/enrollment['mean']*100:.1f}%.\n",
+        f"Coefficient of variation: {enrollment['std'] / enrollment['mean'] * 100:.1f}%.\n",
         "## 3. Feature Engineering\n",
-        f"**Numeric Features ({len(df.columns)}):** CoursePrice, CourseDuration, CourseRating, "
+        f"**Numeric Features ({len(NUMERIC_FEATURES)}):** CoursePrice, CourseDuration, CourseRating, "
         f"TeacherRating, YearsOfExperience, EncodedCourseLevel, TeacherRatingScore\n",
-        f"**Categorical Features:** CourseCategory, CourseType, PriceBand, DurationBucket, "
-        f"RatingTier, ExperienceBucket\n",
-        f"**Excluded Transaction Features:** PaymentMethod, TransactionMonth, Quarter, "
-        f"IsWeekend, SeasonalityLabel, ExpertiseCategoryMatch\n",
+        "**Categorical Features:** CourseCategory, CourseType, PriceBand, DurationBucket, "
+        "RatingTier, ExperienceBucket\n",
+        "**Excluded Transaction Features:** PaymentMethod, TransactionMonth, Quarter, "
+        "IsWeekend, SeasonalityLabel, ExpertiseCategoryMatch\n",
         "## 4. Model Training & Evaluation\n",
         "- **Split:** 80/20 random (random_state=42)",
         "- **CV:** 5-fold KFold (shuffle=True, random_state=42)",
@@ -116,13 +117,13 @@ def generate_research_paper(df: pd.DataFrame | None = None) -> str:
         "- **Candidates:** LinearRegression, Ridge, Lasso, RandomForest, GradientBoosting, XGBoost",
         "- **Selection Criterion:** Must beat baseline on both CV RMSE and test RMSE\n",
         "## 5. Results\n",
-        f"- **Baseline CV RMSE:** (see enrollment_metrics.json)",
-        f"- **Baseline Test RMSE:** (see enrollment_metrics.json)",
+        "- **Baseline CV RMSE:** (see enrollment_metrics.json)",
+        "- **Baseline Test RMSE:** (see enrollment_metrics.json)",
         "- **Selected Model:** (see enrollment_metrics.json)",
         "- **Model Beats Baseline:** (see enrollment_metrics.json — currently False)\n",
         "## 6. Price Elasticity\n",
-        f"- Paid courses: {df[df['CourseType']=='Paid']['CourseID'].nunique()}",
-        f"- Unique paid prices: {df[df['CourseType']=='Paid']['CoursePrice'].nunique()}",
+        f"- Paid courses: {df[df['CourseType'] == 'Paid']['CourseID'].nunique()}",
+        f"- Unique paid prices: {df[df['CourseType'] == 'Paid']['CoursePrice'].nunique()}",
         "- Courses with multiple prices: 0",
         "- Paid price/enrollment correlation: ~0.0\n",
         "A causal price response cannot be estimated from this dataset.\n",
@@ -141,3 +142,7 @@ def generate_research_paper(df: pd.DataFrame | None = None) -> str:
     ]
 
     return "\n".join(lines)
+
+
+# Import NUMERIC_FEATURES at module level for use in generate_research_paper
+from edup.config import NUMERIC_FEATURES  # noqa: E402

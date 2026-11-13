@@ -49,6 +49,9 @@ filterwarnings = [
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
 select = [
     "E", "F", "I", "N", "W", "UP", "B", "C4", "T20", "SIM", "ARG", "PTH", "ERA", "PL", "TRY",
 ]

@@ -13,21 +13,14 @@ import os
 import platform
 import sys
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import joblib
-import numpy as np
 import pandas as pd
 
-from edup.config import (
-    FEATURE_COLUMNS,
-    MODELS_DIR,
-    NUMERIC_FEATURES,
-    CATEGORICAL_FEATURES,
-)
-
+from edup.config import MODELS_DIR
 
 ModelStatus = Literal["active", "legacy", "retired", "cached"]
 
@@ -43,27 +36,31 @@ class ModelMetadata:
     status: ModelStatus
 
     # Training information
-    training_date_utc: Optional[str] = None
-    target_variable: Optional[str] = None
+    training_date_utc: str | None = None
+    target_variable: str | None = None
     feature_names: list[str] = field(default_factory=list)
     feature_order: list[str] = field(default_factory=list)
 
     # Data provenance
-    training_data_fingerprint: Optional[str] = None
-    training_data_shape: Optional[tuple[int, int]] = None
-    training_data_date_range: Optional[dict[str, str]] = None
+    training_data_fingerprint: str | None = None
+    training_data_shape: tuple[int, int] | None = None
+    training_data_date_range: dict[str, str] | None = None
 
     # Evaluation metrics
     metrics: dict[str, Any] = field(default_factory=dict)
 
     # Environment
-    python_version: str = field(default_factory=lambda: f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
-    platform: str = field(default_factory=lambda: platform.platform())
+    python_version: str = field(
+        default_factory=lambda: (
+            f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        )
+    )
+    platform: str = field(default_factory=platform.platform)
     library_versions: dict[str, str] = field(default_factory=dict)
 
     # Artifact integrity
-    artifact_sha256: Optional[str] = None
-    artifact_size_bytes: Optional[int] = None
+    artifact_sha256: str | None = None
+    artifact_size_bytes: int | None = None
 
     # Additional context
     notes: str = ""
@@ -77,7 +74,7 @@ class ModelMetadata:
         return data
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ModelMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> ModelMetadata:
         """Create from dictionary."""
         if "training_data_shape" in data and data["training_data_shape"]:
             data["training_data_shape"] = tuple(data["training_data_shape"])
@@ -91,9 +88,9 @@ class ModelMetadata:
             json.dump(self.to_dict(), f, indent=2, default=str)
 
     @classmethod
-    def read(cls, path: Path | str) -> "ModelMetadata":
+    def read(cls, path: Path | str) -> ModelMetadata:
         """Read metadata from JSON file."""
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return cls.from_dict(data)
 
@@ -112,8 +109,16 @@ def get_library_versions() -> dict[str, str]:
     """Get versions of key libraries."""
     versions = {}
     for lib_name in [
-        "pandas", "numpy", "scikit-learn", "xgboost", "shap",
-        "prophet", "plotly", "streamlit", "joblib", "scipy",
+        "pandas",
+        "numpy",
+        "scikit-learn",
+        "xgboost",
+        "shap",
+        "prophet",
+        "plotly",
+        "streamlit",
+        "joblib",
+        "scipy",
     ]:
         try:
             mod = __import__(lib_name.replace("-", "_"))
@@ -123,7 +128,7 @@ def get_library_versions() -> dict[str, str]:
     return versions
 
 
-def compute_data_fingerprint(df: pd.DataFrame, columns: Optional[list[str]] = None) -> str:
+def compute_data_fingerprint(df: pd.DataFrame, columns: list[str] | None = None) -> str:
     """Compute a deterministic fingerprint of a DataFrame."""
     if columns:
         df = df[columns].copy()
@@ -139,9 +144,8 @@ def compute_data_fingerprint(df: pd.DataFrame, columns: Optional[list[str]] = No
 
 
 def load_model_with_metadata(
-    model_path: Path | str,
-    metadata_path: Optional[Path | str] = None,
-) -> tuple[Any, Optional[ModelMetadata]]:
+    model_path: Path | str, metadata_path: Path | str | None = None
+) -> tuple[Any, ModelMetadata | None]:
     """Load a model artifact and its metadata if available."""
     model_path = Path(model_path)
     model = joblib.load(model_path)
@@ -179,7 +183,9 @@ def validate_model_metadata(metadata: ModelMetadata) -> list[str]:
     return issues
 
 
-def generate_metadata_for_existing_artifacts(models_dir: Path | str = MODELS_DIR) -> dict[str, ModelMetadata]:
+def generate_metadata_for_existing_artifacts(
+    models_dir: Path | str = MODELS_DIR,
+) -> dict[str, ModelMetadata]:
     """Generate metadata for all existing model artifacts in the models directory."""
     models_dir = Path(models_dir)
     artifacts = {}
@@ -197,26 +203,54 @@ def generate_metadata_for_existing_artifacts(models_dir: Path | str = MODELS_DIR
             training_date_utc=None,  # Unknown historical date
             target_variable="EnrollmentCount (course-level)",
             feature_names=[
-                "CoursePrice", "CourseDuration", "CourseRating", "TeacherRating",
-                "YearsOfExperience", "EncodedCourseLevel", "TeacherRatingScore",
-                "ExpertiseCategoryMatch", "TransactionMonth", "Quarter", "IsWeekend",
-                "CourseCategory", "CourseType", "PriceBand", "DurationBucket",
-                "RatingTier", "ExperienceBucket", "SeasonalityLabel", "PaymentMethod",
+                "CoursePrice",
+                "CourseDuration",
+                "CourseRating",
+                "TeacherRating",
+                "YearsOfExperience",
+                "EncodedCourseLevel",
+                "TeacherRatingScore",
+                "ExpertiseCategoryMatch",
+                "TransactionMonth",
+                "Quarter",
+                "IsWeekend",
+                "CourseCategory",
+                "CourseType",
+                "PriceBand",
+                "DurationBucket",
+                "RatingTier",
+                "ExperienceBucket",
+                "SeasonalityLabel",
+                "PaymentMethod",
             ],
             feature_order=[
-                "CoursePrice", "CourseDuration", "CourseRating", "TeacherRating",
-                "YearsOfExperience", "EncodedCourseLevel", "TeacherRatingScore",
-                "ExpertiseCategoryMatch", "TransactionMonth", "Quarter", "IsWeekend",
-                "CourseCategory", "CourseType", "PriceBand", "DurationBucket",
-                "RatingTier", "ExperienceBucket", "SeasonalityLabel", "PaymentMethod",
+                "CoursePrice",
+                "CourseDuration",
+                "CourseRating",
+                "TeacherRating",
+                "YearsOfExperience",
+                "EncodedCourseLevel",
+                "TeacherRatingScore",
+                "ExpertiseCategoryMatch",
+                "TransactionMonth",
+                "Quarter",
+                "IsWeekend",
+                "CourseCategory",
+                "CourseType",
+                "PriceBand",
+                "DurationBucket",
+                "RatingTier",
+                "ExperienceBucket",
+                "SeasonalityLabel",
+                "PaymentMethod",
             ],
             training_data_fingerprint=None,
             training_data_shape=None,
             training_data_date_range=None,
             metrics={
                 "note": "Legacy model trained before Phase 1; no baseline comparison available. "
-                        "Model uses transaction-level features including PaymentMethod and time features "
-                        "that are not available at course-design time. Not recommended for inference.",
+                "Model uses transaction-level features including PaymentMethod and time features "
+                "that are not available at course-design time. Not recommended for inference."
             },
             library_versions={
                 "scikit-learn": "1.8.0",  # Version at time of artifact creation (inferred from warnings)
@@ -249,18 +283,46 @@ def generate_metadata_for_existing_artifacts(models_dir: Path | str = MODELS_DIR
             training_date_utc=None,
             target_variable="Amount (transaction amount)",
             feature_names=[
-                "CoursePrice", "CourseDuration", "CourseRating", "TeacherRating",
-                "YearsOfExperience", "EncodedCourseLevel", "TeacherRatingScore",
-                "ExpertiseCategoryMatch", "TransactionMonth", "Quarter", "IsWeekend",
-                "CourseCategory", "CourseType", "PriceBand", "DurationBucket",
-                "RatingTier", "ExperienceBucket", "SeasonalityLabel", "PaymentMethod",
+                "CoursePrice",
+                "CourseDuration",
+                "CourseRating",
+                "TeacherRating",
+                "YearsOfExperience",
+                "EncodedCourseLevel",
+                "TeacherRatingScore",
+                "ExpertiseCategoryMatch",
+                "TransactionMonth",
+                "Quarter",
+                "IsWeekend",
+                "CourseCategory",
+                "CourseType",
+                "PriceBand",
+                "DurationBucket",
+                "RatingTier",
+                "ExperienceBucket",
+                "SeasonalityLabel",
+                "PaymentMethod",
             ],
             feature_order=[
-                "CoursePrice", "CourseDuration", "CourseRating", "TeacherRating",
-                "YearsOfExperience", "EncodedCourseLevel", "TeacherRatingScore",
-                "ExpertiseCategoryMatch", "TransactionMonth", "Quarter", "IsWeekend",
-                "CourseCategory", "CourseType", "PriceBand", "DurationBucket",
-                "RatingTier", "ExperienceBucket", "SeasonalityLabel", "PaymentMethod",
+                "CoursePrice",
+                "CourseDuration",
+                "CourseRating",
+                "TeacherRating",
+                "YearsOfExperience",
+                "EncodedCourseLevel",
+                "TeacherRatingScore",
+                "ExpertiseCategoryMatch",
+                "TransactionMonth",
+                "Quarter",
+                "IsWeekend",
+                "CourseCategory",
+                "CourseType",
+                "PriceBand",
+                "DurationBucket",
+                "RatingTier",
+                "ExperienceBucket",
+                "SeasonalityLabel",
+                "PaymentMethod",
             ],
             training_data_fingerprint=None,
             training_data_shape=None,
@@ -268,14 +330,10 @@ def generate_metadata_for_existing_artifacts(models_dir: Path | str = MODELS_DIR
             metrics={
                 "r2": 1.0,
                 "note": "R² = 1.0 because Amount == CoursePrice for paid transactions and 0 for free. "
-                        "This is an accounting identity / target leakage, not predictive skill. "
-                        "See revenue_target_audit.json for details.",
+                "This is an accounting identity / target leakage, not predictive skill. "
+                "See revenue_target_audit.json for details.",
             },
-            library_versions={
-                "scikit-learn": "1.8.0",
-                "pandas": "unknown",
-                "numpy": "unknown",
-            },
+            library_versions={"scikit-learn": "1.8.0", "pandas": "unknown", "numpy": "unknown"},
             artifact_sha256=sha256,
             artifact_size_bytes=size,
             notes=(
@@ -300,26 +358,52 @@ def generate_metadata_for_existing_artifacts(models_dir: Path | str = MODELS_DIR
             training_date_utc=None,
             target_variable=None,
             feature_names=[
-                "CoursePrice", "CourseDuration", "CourseRating", "TeacherRating",
-                "YearsOfExperience", "EncodedCourseLevel", "TeacherRatingScore",
-                "ExpertiseCategoryMatch", "TransactionMonth", "Quarter", "IsWeekend",
-                "CourseCategory", "CourseType", "PriceBand", "DurationBucket",
-                "RatingTier", "ExperienceBucket", "SeasonalityLabel", "PaymentMethod",
+                "CoursePrice",
+                "CourseDuration",
+                "CourseRating",
+                "TeacherRating",
+                "YearsOfExperience",
+                "EncodedCourseLevel",
+                "TeacherRatingScore",
+                "ExpertiseCategoryMatch",
+                "TransactionMonth",
+                "Quarter",
+                "IsWeekend",
+                "CourseCategory",
+                "CourseType",
+                "PriceBand",
+                "DurationBucket",
+                "RatingTier",
+                "ExperienceBucket",
+                "SeasonalityLabel",
+                "PaymentMethod",
             ],
             feature_order=[
-                "CoursePrice", "CourseDuration", "CourseRating", "TeacherRating",
-                "YearsOfExperience", "EncodedCourseLevel", "TeacherRatingScore",
-                "ExpertiseCategoryMatch", "TransactionMonth", "Quarter", "IsWeekend",
-                "CourseCategory", "CourseType", "PriceBand", "DurationBucket",
-                "RatingTier", "ExperienceBucket", "SeasonalityLabel", "PaymentMethod",
+                "CoursePrice",
+                "CourseDuration",
+                "CourseRating",
+                "TeacherRating",
+                "YearsOfExperience",
+                "EncodedCourseLevel",
+                "TeacherRatingScore",
+                "ExpertiseCategoryMatch",
+                "TransactionMonth",
+                "Quarter",
+                "IsWeekend",
+                "CourseCategory",
+                "CourseType",
+                "PriceBand",
+                "DurationBucket",
+                "RatingTier",
+                "ExperienceBucket",
+                "SeasonalityLabel",
+                "PaymentMethod",
             ],
             training_data_fingerprint=None,
             training_data_shape=None,
             training_data_date_range=None,
             metrics={},
-            library_versions={
-                "scikit-learn": "1.8.0",
-            },
+            library_versions={"scikit-learn": "1.8.0"},
             artifact_sha256=sha256,
             artifact_size_bytes=size,
             notes=(
@@ -350,7 +434,7 @@ def generate_metadata_for_existing_artifacts(models_dir: Path | str = MODELS_DIR
             training_data_date_range={"start": "2025-01-01", "end": "2025-12-30"},
             metrics={
                 "note": "Cached Prophet output. Not backtested. No validation metrics available. "
-                        "Dashboard displays with explicit 'unbacktested' warning.",
+                "Dashboard displays with explicit 'unbacktested' warning."
             },
             library_versions={
                 "prophet": "1.1.4+",  # Minimum from requirements
@@ -382,7 +466,7 @@ def write_all_metadata(models_dir: Path | str = MODELS_DIR) -> None:
 
     # Also write a combined index
     index = {
-        "generated_utc": datetime.now(timezone.utc).isoformat(),
+        "generated_utc": datetime.now(UTC).isoformat(),
         "models_dir": str(models_dir),
         "artifacts": {name: meta.to_dict() for name, meta in artifacts.items()},
     }

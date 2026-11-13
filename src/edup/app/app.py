@@ -6,18 +6,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Tuple
 
 import pandas as pd
 
 from edup.config import PROCESSED_DATA_PATH
 from edup.data import load_processed_data
-from edup.models import load_enrollment_model
-from edup.forecasting import load_forecast_results
-from edup.exceptions import DataUnavailableError, ModelLoadError, ForecastError, DashboardError
+from edup.exceptions import DataUnavailableError
 
 
-def validate_dashboard_artifacts() -> Tuple[pd.DataFrame | None, str | None]:
+def validate_dashboard_artifacts() -> tuple[pd.DataFrame | None, str | None]:
     """Validate that all required artifacts exist for the dashboard."""
     errors = []
 
@@ -36,7 +33,7 @@ def validate_dashboard_artifacts() -> Tuple[pd.DataFrame | None, str | None]:
     return None, None
 
 
-def load_dashboard_data() -> Tuple[pd.DataFrame | None, str | None]:
+def load_dashboard_data() -> tuple[pd.DataFrame | None, str | None]:
     """Load and validate all data needed for the dashboard."""
     try:
         df = load_processed_data()

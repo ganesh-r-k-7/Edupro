@@ -8,7 +8,7 @@ scenario calculations with explicit assumptions.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
@@ -24,8 +24,18 @@ def _require_columns(df: pd.DataFrame, columns: Iterable[str]) -> None:
 
 def compute_business_facts(df: pd.DataFrame) -> dict:
     """Compute the headline facts from the processed transaction dataset."""
-    _require_columns(df, ["Amount", "CoursePrice", "CourseID", "CourseCategory",
-                          "CourseType", "TransactionID", "TransactionDate"])
+    _require_columns(
+        df,
+        [
+            "Amount",
+            "CoursePrice",
+            "CourseID",
+            "CourseCategory",
+            "CourseType",
+            "TransactionID",
+            "TransactionDate",
+        ],
+    )
 
     amount = pd.to_numeric(df["Amount"], errors="coerce").fillna(0.0)
     paid_mask = amount > 0
@@ -113,8 +123,14 @@ def enrollment_reference(df: pd.DataFrame) -> dict:
     counts = df.groupby("CourseID")["TransactionID"].count().astype(float)
     if counts.empty:
         return {
-            "n_courses": 0, "mean": 0.0, "median": 0.0, "std": 0.0,
-            "p10": 0.0, "p90": 0.0, "min": 0.0, "max": 0.0,
+            "n_courses": 0,
+            "mean": 0.0,
+            "median": 0.0,
+            "std": 0.0,
+            "p10": 0.0,
+            "p90": 0.0,
+            "min": 0.0,
+            "max": 0.0,
         }
     return {
         "n_courses": int(len(counts)),
@@ -218,22 +234,31 @@ def revenue_scenarios(
         raise ValueError("assumed_change_pct must be between -100 and 100.")
 
     default_prices = [0.0, 50.0, 100.0, 150.0, 200.0, 250.0, 300.0, 350.0, 400.0, 450.0, 500.0]
-    tested = [_finite_float(p, "Scenario price") for p in (prices if prices is not None else default_prices)]
+    tested = [
+        _finite_float(p, "Scenario price")
+        for p in (prices if prices is not None else default_prices)
+    ]
     if not tested:
         raise ValueError("At least one scenario price is required.")
     for p in tested:
         if p < MIN_PRICE or p > MAX_PRICE:
-            raise ValueError(f"Scenario price must be between {MIN_PRICE:.0f} and {MAX_PRICE:.0f}; got {p:.2f}.")
+            raise ValueError(
+                f"Scenario price must be between {MIN_PRICE:.0f} and {MAX_PRICE:.0f}; got {p:.2f}."
+            )
 
     projected_enrollments = reference_enrollments * (1.0 + assumed_change_pct / 100.0)
     rows = []
     for p in tested:
-        rows.append({
-            "Price": p,
-            "PriceChangePct": ((p / base_price - 1.0) * 100.0) if base_price > 0 else float("nan"),
-            "AssumedEnrollmentChangePct": assumed_change_pct,
-            "ProjectedEnrollments": projected_enrollments,
-            "ProjectedRevenue": p * projected_enrollments,
-            "BreakEvenEnrollmentChangePct": break_even_enrollment_change(base_price, p),
-        })
+        rows.append(
+            {
+                "Price": p,
+                "PriceChangePct": ((p / base_price - 1.0) * 100.0)
+                if base_price > 0
+                else float("nan"),
+                "AssumedEnrollmentChangePct": assumed_change_pct,
+                "ProjectedEnrollments": projected_enrollments,
+                "ProjectedRevenue": p * projected_enrollments,
+                "BreakEvenEnrollmentChangePct": break_even_enrollment_change(base_price, p),
+            }
+        )
     return pd.DataFrame(rows)

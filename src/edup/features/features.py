@@ -19,30 +19,21 @@ from edup.config import (
     COURSE_CATEGORIES,
     COURSE_LEVELS,
     COURSE_TYPES,
-    PAYMENT_METHODS,
-    PRICE_BANDS,
-    DURATION_BUCKETS,
-    RATING_TIERS,
-    EXPERIENCE_BUCKETS,
-    SEASONALITY_LABELS,
-    MAX_PRICE,
-    MIN_PRICE,
-    MAX_DURATION,
-    MIN_DURATION,
-    MIN_RATING,
-    MAX_RATING,
-    MIN_EXPERIENCE,
-    MAX_EXPERIENCE,
-    PRICE_BAND_EDGES,
-    DURATION_BUCKET_EDGES,
-    NUMERIC_FEATURES,
-    CATEGORICAL_FEATURES,
     FEATURE_COLUMNS,
-    EXCLUDED_TRANSACTION_FEATURES,
+    MAX_DURATION,
+    MAX_EXPERIENCE,
+    MAX_PRICE,
+    MAX_RATING,
+    MIN_DURATION,
+    MIN_EXPERIENCE,
+    MIN_PRICE,
+    MIN_RATING,
+    PAYMENT_METHODS,
 )
 
 
 def _as_float(value: Any, field: str) -> float:
+    """Convert value to float with validation."""
     if isinstance(value, bool):
         raise ValueError(f"{field} must be a number, got {value!r}.")
     try:
@@ -55,6 +46,7 @@ def _as_float(value: Any, field: str) -> float:
 
 
 def _check_choice(value: str, choices: list[str], field: str) -> str:
+    """Validate that value is in allowed choices."""
     if value not in choices:
         raise ValueError(f"{field} must be one of {choices}, got {value!r}.")
     return value
@@ -70,7 +62,7 @@ def validate_course_inputs(
     course_type: str = "Paid",
     course_rating: float = 4.0,
     payment_method: str = "Credit Card",
-) -> dict:
+) -> dict[str, Any]:
     """Validate and normalize dashboard inputs.
 
     Returns a dict with normalized values. Free courses always have price 0.
@@ -88,21 +80,33 @@ def validate_course_inputs(
     t_rating = _as_float(teacher_rating, "Teacher rating")
 
     if price < MIN_PRICE or price > MAX_PRICE:
-        raise ValueError(f"Course price must be between ${MIN_PRICE:.0f} and ${MAX_PRICE:.0f}; got {price:.2f}.")
+        raise ValueError(
+            f"Course price must be between ${MIN_PRICE:.0f} and ${MAX_PRICE:.0f}; got {price:.2f}."
+        )
     if duration < MIN_DURATION or duration > MAX_DURATION:
-        raise ValueError(f"Course duration must be between {MIN_DURATION:.0f} and {MAX_DURATION:.0f} hours; got {duration:.1f}.")
+        raise ValueError(
+            f"Course duration must be between {MIN_DURATION:.0f} and {MAX_DURATION:.0f} hours; got {duration:.1f}."
+        )
     if rating < MIN_RATING or rating > MAX_RATING:
-        raise ValueError(f"Course rating must be between {MIN_RATING:.1f} and {MAX_RATING:.1f}; got {rating:.2f}.")
+        raise ValueError(
+            f"Course rating must be between {MIN_RATING:.1f} and {MAX_RATING:.1f}; got {rating:.2f}."
+        )
     if t_rating < MIN_RATING or t_rating > MAX_RATING:
-        raise ValueError(f"Teacher rating must be between {MIN_RATING:.1f} and {MAX_RATING:.1f}; got {t_rating:.2f}.")
+        raise ValueError(
+            f"Teacher rating must be between {MIN_RATING:.1f} and {MAX_RATING:.1f}; got {t_rating:.2f}."
+        )
     if experience < MIN_EXPERIENCE or experience > MAX_EXPERIENCE:
-        raise ValueError(f"Teacher experience must be between {MIN_EXPERIENCE} and {MAX_EXPERIENCE} years; got {experience:.1f}.")
+        raise ValueError(
+            f"Teacher experience must be between {MIN_EXPERIENCE} and {MAX_EXPERIENCE} years; got {experience:.1f}."
+        )
 
     if ctype == "Free":
         if price != 0:
             price = 0.0
     elif price == 0:
-        raise ValueError("Paid courses require a course price greater than $0. Select Free for a zero-price course.")
+        raise ValueError(
+            "Paid courses require a course price greater than $0. Select Free for a zero-price course."
+        )
 
     return {
         "course_category": category,
@@ -121,7 +125,9 @@ def price_band(price: float) -> str:
     """Return the canonical price band, raising for unsupported prices."""
     value = _as_float(price, "Course price")
     if value < MIN_PRICE or value > MAX_PRICE:
-        raise ValueError(f"Course price must be between ${MIN_PRICE:.0f} and ${MAX_PRICE:.0f}; got {value:.2f}.")
+        raise ValueError(
+            f"Course price must be between ${MIN_PRICE:.0f} and ${MAX_PRICE:.0f}; got {value:.2f}."
+        )
     if value == 0:
         return "Free"
     if value <= 50:
@@ -137,7 +143,9 @@ def duration_bucket(duration: float) -> str:
     """Return the canonical duration bucket."""
     value = _as_float(duration, "Course duration")
     if value < MIN_DURATION or value > MAX_DURATION:
-        raise ValueError(f"Course duration must be between {MIN_DURATION:.0f} and {MAX_DURATION:.0f} hours; got {value:.1f}.")
+        raise ValueError(
+            f"Course duration must be between {MIN_DURATION:.0f} and {MAX_DURATION:.0f} hours; got {value:.1f}."
+        )
     if value <= 10:
         return "Short"
     if value <= 25:
@@ -148,9 +156,12 @@ def duration_bucket(duration: float) -> str:
 
 
 def rating_tier(rating: float) -> str:
+    """Return the canonical rating tier."""
     value = _as_float(rating, "Course rating")
     if value < MIN_RATING or value > MAX_RATING:
-        raise ValueError(f"Course rating must be between {MIN_RATING:.1f} and {MAX_RATING:.1f}; got {value:.2f}.")
+        raise ValueError(
+            f"Course rating must be between {MIN_RATING:.1f} and {MAX_RATING:.1f}; got {value:.2f}."
+        )
     if value >= 4.5:
         return "Elite"
     if value >= 4.0:
@@ -161,9 +172,12 @@ def rating_tier(rating: float) -> str:
 
 
 def experience_bucket(experience: float) -> str:
+    """Return the canonical experience bucket."""
     value = _as_float(experience, "Teacher experience")
     if value < MIN_EXPERIENCE or value > MAX_EXPERIENCE:
-        raise ValueError(f"Teacher experience must be between {MIN_EXPERIENCE} and {MAX_EXPERIENCE} years; got {value:.1f}.")
+        raise ValueError(
+            f"Teacher experience must be between {MIN_EXPERIENCE} and {MAX_EXPERIENCE} years; got {value:.1f}."
+        )
     if value <= 2:
         return "Junior"
     if value <= 5:
@@ -180,9 +194,7 @@ def seasonality_label(quarter: int) -> str:
     try:
         value = int(quarter)
     except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(
-            f"Quarter must be an integer between 1 and 4; got {quarter!r}."
-        ) from exc
+        raise ValueError(f"Quarter must be an integer between 1 and 4; got {quarter!r}.") from exc
     if value != quarter or value < 1 or value > 4:
         raise ValueError(f"Quarter must be an integer between 1 and 4; got {quarter!r}.")
     return {1: "NewYearRush", 2: "Spring", 3: "Summer", 4: "YearEnd"}[value]
@@ -199,7 +211,9 @@ def teacher_rating_score(teacher_rating: float) -> float:
     """Fixed 1-5 normalization shared by training and inference."""
     value = _as_float(teacher_rating, "Teacher rating")
     if value < MIN_RATING or value > MAX_RATING:
-        raise ValueError(f"Teacher rating must be between {MIN_RATING:.1f} and {MAX_RATING:.1f}; got {value:.2f}.")
+        raise ValueError(
+            f"Teacher rating must be between {MIN_RATING:.1f} and {MAX_RATING:.1f}; got {value:.2f}."
+        )
     return (value - MIN_RATING) / (MAX_RATING - MIN_RATING)
 
 
@@ -213,7 +227,7 @@ def build_feature_row(
     course_type: str = "Paid",
     course_rating: float = 4.0,
     payment_method: str = "Credit Card",
-) -> dict:
+) -> dict[str, Any]:
     """Build one canonical feature row. No transaction-only defaults leak in."""
     values = validate_course_inputs(
         course_category,
@@ -243,7 +257,7 @@ def build_feature_row(
     }
 
 
-def build_feature_frame(**kwargs) -> pd.DataFrame:
+def build_feature_frame(**kwargs: Any) -> pd.DataFrame:
     """Return a one-row DataFrame in the canonical model column order."""
     return pd.DataFrame([build_feature_row(**kwargs)], columns=FEATURE_COLUMNS)
 

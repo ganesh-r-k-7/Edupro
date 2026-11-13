@@ -8,7 +8,6 @@ and the dashboard.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 # ─── Project Root ──────────────────────────────────────────────────────────────
@@ -116,12 +115,28 @@ EXCLUDED_TRANSACTION_FEATURES = [
 
 # All engineered columns (for dropping before re-running feature engineering)
 ENGINEERED_COLUMNS = [
-    "PriceBand", "DurationBucket", "RatingTier", "EncodedCourseLevel",
-    "ExperienceBucket", "TeacherRatingScore", "ExpertiseCategoryMatch",
-    "TransactionMonth", "Quarter", "Year", "DayOfWeek", "WeekOfYear",
-    "IsWeekend", "SeasonalityLabel", "EnrollmentCount", "TotalRevenue",
-    "AverageRevenue", "RevenuePerEnrollment", "MonthlyRevenue",
-    "RollingRevenueAverage", "RevenueGrowthRate", "MonthlyRevenueTrend",
+    "PriceBand",
+    "DurationBucket",
+    "RatingTier",
+    "EncodedCourseLevel",
+    "ExperienceBucket",
+    "TeacherRatingScore",
+    "ExpertiseCategoryMatch",
+    "TransactionMonth",
+    "Quarter",
+    "Year",
+    "DayOfWeek",
+    "WeekOfYear",
+    "IsWeekend",
+    "SeasonalityLabel",
+    "EnrollmentCount",
+    "TotalRevenue",
+    "AverageRevenue",
+    "RevenuePerEnrollment",
+    "MonthlyRevenue",
+    "RollingRevenueAverage",
+    "RevenueGrowthRate",
+    "MonthlyRevenueTrend",
 ]
 
 # ─── Forecast Payload Schema ───────────────────────────────────────────────────

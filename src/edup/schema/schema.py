@@ -6,14 +6,12 @@ Provides validators for raw Excel sheets, processed data, and forecast payloads.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from edup.exceptions import DataContractError, DataUnavailableError
-
 
 # ─── Sheet Schemas ─────────────────────────────────────────────────────────────
 
@@ -79,9 +77,7 @@ def validate_sheet_schema(df: pd.DataFrame, sheet_name: str) -> None:
 
     missing_cols = [c for c in schema["required_columns"] if c not in df.columns]
     if missing_cols:
-        raise DataContractError(
-            f"Sheet '{sheet_name}' missing required columns: {missing_cols}"
-        )
+        raise DataContractError(f"Sheet '{sheet_name}' missing required columns: {missing_cols}")
 
     key_col = schema["key"]
     if key_col in df.columns:
@@ -148,16 +144,16 @@ NON_NEGATIVE_NUMERIC_COLUMNS = ["Amount"]
 def validate_processed_data(df: pd.DataFrame) -> pd.DataFrame:
     """Validate the minimum dataset contract used by the dashboard and pipeline."""
     from edup.config import (
-        COURSE_TYPES,
         COURSE_LEVELS,
-        MIN_PRICE,
-        MAX_PRICE,
-        MIN_DURATION,
+        COURSE_TYPES,
         MAX_DURATION,
-        MIN_RATING,
-        MAX_RATING,
-        MIN_EXPERIENCE,
         MAX_EXPERIENCE,
+        MAX_PRICE,
+        MAX_RATING,
+        MIN_DURATION,
+        MIN_EXPERIENCE,
+        MIN_PRICE,
+        MIN_RATING,
     )
 
     if df is None or len(df) == 0:
@@ -167,9 +163,7 @@ def validate_processed_data(df: pd.DataFrame) -> pd.DataFrame:
 
     missing = [c for c in REQUIRED_DATA_COLUMNS if c not in df.columns]
     if missing:
-        raise DataUnavailableError(
-            f"Processed data is missing required columns: {missing}."
-        )
+        raise DataUnavailableError(f"Processed data is missing required columns: {missing}.")
 
     if not pd.api.types.is_datetime64_any_dtype(df["TransactionDate"]):
         raise DataUnavailableError("TransactionDate must be parsed as a datetime column.")
@@ -265,7 +259,9 @@ def validate_forecast_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if not pd.api.types.is_numeric_dtype(revenue[column]):
             raise DataUnavailableError(f"Revenue forecast column {column} must be numeric.")
         if not np.isfinite(revenue[column].to_numpy(dtype=float)).all():
-            raise DataUnavailableError(f"Revenue forecast column {column} contains non-finite values.")
+            raise DataUnavailableError(
+                f"Revenue forecast column {column} contains non-finite values."
+            )
 
     payload["revenue"] = revenue
     return payload

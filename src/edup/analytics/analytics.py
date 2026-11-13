@@ -4,24 +4,19 @@ analytics.py — Business analytics and KPI computation for EduPro.
 
 from __future__ import annotations
 
-import math
-from typing import Iterable
-
-import numpy as np
 import pandas as pd
 
-from edup.config import MIN_PRICE, MAX_PRICE
 from edup.analytics.business_facts import (
-    compute_business_facts,
     amount_price_identity_summary,
+    break_even_enrollment_change,
+    compute_business_facts,
     enrollment_reference,
     price_demand_diagnostics,
     revenue_scenarios,
-    break_even_enrollment_change,
 )
 
 
-def compute_kpis(df: pd.DataFrame) -> dict:
+def compute_kpis(df: pd.DataFrame) -> dict[str, float | int | str]:
     """Compute key performance indicators for the executive dashboard."""
     if df is None or len(df) == 0:
         raise ValueError("KPI computation requires at least one transaction.")
