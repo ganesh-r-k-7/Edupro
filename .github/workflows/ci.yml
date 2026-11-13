@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test (Python 3.11)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Verify key imports
+        run: |
+          python -c "import pandas; import numpy; import sklearn; import xgboost; import shap; import prophet; import plotly; import streamlit; import joblib; import openpyxl; import matplotlib; import seaborn; import statsmodels; import nbformat; print('All imports OK')"
+
+      - name: Run regression suite
+        run: |
+          python -m pytest tests -v --tb=short
+
+      - name: Report test summary
+        if: always()
+        run: |
+          echo "=== CI Test Summary ==="
+          echo "Python version: $(python --version)"
+          echo "Pip packages:"
+          pip list | grep -E "pandas|numpy|scikit-learn|xgboost|shap|prophet|plotly|streamlit|joblib"
+          echo "Test run completed."
