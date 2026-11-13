@@ -192,7 +192,7 @@ The original revenue model achieved R² = 1.0 because the target is an accountin
 
 There are only 60 course-level observations. Enrollment ranges from 140 to 196 (mean 166.7, standard deviation 12.4; CV 7.5%). A global-mean baseline has MAE 10.02 and RMSE 12.42. A category-mean baseline is worse (MAE 11.13, R² -0.21).
 
-Phase 1 compares candidate models with a mean baseline using 5-fold cross-validation on the training split and one final test evaluation. The baseline achieved CV RMSE 12.27 and test RMSE 13.73. The selected Random Forest achieved CV RMSE 13.05 and test RMSE 14.07, so it did not beat the baseline on either criterion and was not persisted. The dashboard shows the historical reference mean and 10th–90th percentile range instead.
+Phase 1 compares candidate models (LinearRegression, Ridge, Lasso, RandomForest, GradientBoosting, XGBoost) with a mean baseline using 5-fold cross-validation on the training split and one final test evaluation. The baseline achieved CV RMSE 12.27 and test RMSE 13.73. No candidate beat the baseline on both criteria; therefore no Phase 1 enrollment model artifact was persisted. The dashboard shows the historical reference mean and 10th–90th percentile range instead.
 
 **Practical Implication:** The available static course features do not support useful course-level enrollment prediction. Marketing, timing, and learner-level factors are not captured in the dataset.
 
@@ -249,9 +249,9 @@ This Phase 1 audit demonstrates why model validation and target definition matte
 The pipeline is a research/demo prototype, not a production forecasting system.
 
 ---
-
+ 
 ## 12. Future Work
-
+ 
 1. **Controlled pricing experiment:** Randomize prices within courses over time before attempting any elasticity or revenue-optimization model.
 2. **Real-time inference:** Integrate a validated model pipeline with EduPro's transaction API for live prediction updates.
 3. **User-level personalization:** Incorporate user engagement history (repeat purchases, session duration, completion rates) to build individual demand propensity models.
@@ -260,9 +260,22 @@ The pipeline is a research/demo prototype, not a production forecasting system.
 6. **Churn prediction:** Develop a user churn propensity model to identify at-risk learners and trigger retention campaigns.
 7. **Multi-horizon forecasting:** Backtest Prophet and extend validated forecasts to 12-month horizons with scenario simulation (optimistic/base/pessimistic).
 8. **Automated retraining:** Implement MLflow or Weights & Biases pipelines for automatic model retraining on monthly data refreshes.
-
+ 
 ---
-
+ 
+## 13. Engineering Improvements (Phases 3–4)
+ 
+The following engineering improvements were implemented after the initial audit to harden the codebase:
+ 
+- **R3.1 (Shared Package):** Created `src/edup/` as a single source of truth for configuration, feature engineering, data contracts, model operations, and analytics—eliminating train/serve skew.
+- **R3.2 (Dead Code Removal):** Removed unused functions (`get_enrollment_model`, `_cached_compute`, `get_business_facts`, `get_price_demand_diagnostics`, `compute_shap_values`), unused constants in `config.py`, and obsolete compatibility wrappers.
+- **R3.3 (Code Quality & Observability):** Added type hints to all public interfaces; configured Ruff and Mypy with zero errors; introduced structured logging via `edup.logging`; formalized exception taxonomy (`DataContractError`, `DataUnavailableError`, `ModelLoadError`, `ForecastError`, `DashboardError`).
+- **R3.4 (Continuous Integration):** Added GitHub Actions workflow (`.github/workflows/ci.yml`) running on push/PR to `main` with Python 3.11, dependency caching, and full test suite (296 tests).
+- **R3.5 (Dependency Reproducibility & Model Metadata):** Pinned all dependencies in `pyproject.toml` and `requirements.lock`; generated `model_metadata.json` for all artifacts with SHA256 hashes, training metadata, library versions, and explicit status flags (`legacy`, `retired`, `cached`).
+- **R4.1–R4.2 (Performance):** Added `st.cache_resource` for model loading and `st.cache_data` for dashboard computations (KPIs, charts, forecasts) keyed by data hash for automatic invalidation.
+ 
+---
+ 
 ## References
 
 1. Chen, T., & Guestrin, C. (2016). XGBoost: A Scalable Tree Boosting System. *Proceedings of KDD 2016*.

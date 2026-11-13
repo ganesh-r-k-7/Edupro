@@ -16,24 +16,11 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 DATA_DIR = ROOT_DIR / "data"
 MODELS_DIR = ROOT_DIR / "models"
 REPORTS_DIR = ROOT_DIR / "reports"
-NOTEBOOKS_DIR = ROOT_DIR / "notebooks"
-APP_DIR = ROOT_DIR / "app"
-TESTS_DIR = ROOT_DIR / "tests"
 
 # ─── Raw / Processed Data Paths ────────────────────────────────────────────────
 
 RAW_DATA_PATH = DATA_DIR / "EduPro_Online_Platform.xlsx"
-INTERIM_DATA_PATH = DATA_DIR / "processed_data.csv"
 PROCESSED_DATA_PATH = DATA_DIR / "processed_data.csv"
-
-# ─── Model Artifact Paths ──────────────────────────────────────────────────────
-
-REVENUE_MODEL_PATH = MODELS_DIR / "revenue_model.pkl"
-ENROLLMENT_MODEL_PATH = MODELS_DIR / "enrollment_model.pkl"
-PREPROCESSING_PIPELINE_PATH = MODELS_DIR / "preprocessing_pipeline.pkl"
-FORECAST_RESULTS_PATH = MODELS_DIR / "forecast_results.pkl"
-ENROLLMENT_METRICS_PATH = MODELS_DIR / "enrollment_metrics.json"
-REVENUE_TARGET_AUDIT_PATH = MODELS_DIR / "revenue_target_audit.json"
 
 # ─── Categorical Domains ───────────────────────────────────────────────────────
 

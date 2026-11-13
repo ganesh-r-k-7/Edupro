@@ -59,8 +59,8 @@ from edup.config import (
 )
 from edup.data import load_processed_data
 from edup.analytics import (
-    compute_kpis,
     compute_business_facts,
+    compute_kpis,
     enrollment_reference,
     price_demand_diagnostics,
     revenue_scenarios,
@@ -70,10 +70,9 @@ from edup.features import (
     build_feature_frame,
     build_feature_row,
 )
-from edup.models import load_enrollment_model, predict_enrollment, ModelLoadError
-from edup.forecasting import load_forecast_results as _load_forecast_results, ForecastError, _NO_OVERRIDE
+from edup.forecasting import load_forecast_results as _load_forecast_results, _NO_OVERRIDE
 from edup.schema import validate_forecast_payload
-from edup.exceptions import DataUnavailableError, DataContractError, ModelLoadError as EdupModelLoadError, ForecastError as EdupForecastError, DashboardError
+from edup.exceptions import DataUnavailableError
 
 # Expose joblib for backward compatibility with tests
 try:
@@ -97,7 +96,7 @@ class _FeatureContract:
 
 feature_contract = _FeatureContract()
 
-# ─── Cached Model Loading (R4.1) ───────────────────────────────────────────────
+# ─── Cached Dashboard Computations (R4.2) ──────────────────────────────────────
 
 def _get_data_hash() -> str:
     """Generate a hash of the processed data file for cache invalidation."""
@@ -106,24 +105,6 @@ def _get_data_hash() -> str:
         return f"{stat.st_mtime_ns}_{stat.st_size}"
     except OSError:
         return "no_data"
-
-
-@st.cache_resource(show_spinner=False)
-def get_enrollment_model():
-    """Load enrollment model once per process (cached)."""
-    from edup.models import load_enrollment_model
-    return load_enrollment_model()
-
-
-# ─── Cached Dashboard Computations (R4.2) ──────────────────────────────────────
-
-def _cached_compute(key: str, func, *args, **kwargs):
-    """Generic cache helper keyed by data hash."""
-    if st is None:
-        return func(*args, **kwargs)
-    data_hash = _get_data_hash()
-    cache_key = f"{key}_{data_hash}"
-    return st.cache_data(show_spinner=False)(func)(*args, **kwargs)
 
 
 @st.cache_data(show_spinner=False)
@@ -446,20 +427,6 @@ def estimate_enrollment_reference(df: pd.DataFrame | None = None) -> tuple[dict 
     return ref, None
 
 
-def get_business_facts(df: pd.DataFrame | None = None) -> dict:
-    """Load and compute the data-verified business facts."""
-    if df is None:
-        df = load_processed_data()
-    return compute_business_facts(df)
-
-
-def get_price_demand_diagnostics(df: pd.DataFrame | None = None) -> dict:
-    """Return evidence on whether price response is identifiable."""
-    if df is None:
-        df = load_processed_data()
-    return price_demand_diagnostics(df)
-
-
 def get_pricing_scenarios(
     base_price: float,
     reference_enrollments: float,
@@ -470,35 +437,3 @@ def get_pricing_scenarios(
     return revenue_scenarios(
         base_price, reference_enrollments, assumed_change_pct, prices
     )
-
-
-# ─── SHAP Explainability ─────────────────────────────────────────────────────
-
-def compute_shap_values(model_pipe, X_sample, num_features, cat_features):
-    """Compute SHAP values with an explainer appropriate to the estimator."""
-    import shap
-
-    preprocessor = model_pipe.named_steps["preprocessor"]
-    final_model = model_pipe.named_steps["model"]
-
-    X_transformed = preprocessor.transform(X_sample)
-    try:
-        ohe = preprocessor.named_transformers_["cat"]
-        cat_names = list(ohe.get_feature_names_out(cat_features))
-    except Exception:
-        cat_names = []
-
-    all_names = list(num_features) + cat_names
-    X_df = pd.DataFrame(X_transformed, columns=all_names[: X_transformed.shape[1]])
-
-    if hasattr(final_model, "feature_importances_"):
-        explainer = shap.TreeExplainer(final_model)
-    elif hasattr(final_model, "coef_"):
-        explainer = shap.LinearExplainer(final_model, X_df)
-    else:
-        explainer = shap.Explainer(final_model, X_df)
-
-    shap_values = explainer.shap_values(X_df)
-    if isinstance(shap_values, list):
-        shap_values = shap_values[0]
-    return np.asarray(shap_values), X_df, explainer
