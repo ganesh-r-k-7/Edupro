@@ -1,0 +1,28 @@
+{
+  "model_name": "forecast_results",
+  "model_type": "Prophet (multiplicative seasonality) forecast output dict",
+  "artifact_filename": "forecast_results.pkl",
+  "status": "cached",
+  "training_date_utc": null,
+  "target_variable": "Monthly revenue + enrollment",
+  "feature_names": [],
+  "feature_order": [],
+  "training_data_fingerprint": null,
+  "training_data_shape": null,
+  "training_data_date_range": {
+    "start": "2025-01-01",
+    "end": "2025-12-30"
+  },
+  "metrics": {
+    "note": "Cached Prophet output. Not backtested. No validation metrics available. Dashboard displays with explicit 'unbacktested' warning."
+  },
+  "python_version": "3.14.4",
+  "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+  "library_versions": {
+    "prophet": "1.1.4+",
+    "pandas": "unknown"
+  },
+  "artifact_sha256": "388be3b3139383995bce0dec08fbdeff2c6654e97e2440789e6a790b272b9300",
+  "artifact_size_bytes": 7515,
+  "notes": "Cached Prophet forecast results for 6-month revenue and enrollment projections. Generated from monthly aggregated transaction data (2025-01 to 2025-12). NOT BACKTESTED: No holdout evaluation, no baseline comparison, no uncertainty calibration. Dashboard displays with explicit caveat. Do not treat as validated forecast."
+}

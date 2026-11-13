@@ -7,6 +7,8 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import platform
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,13 @@ from edup.features import validate_course_inputs, build_feature_frame, assert_fe
 from edup.analytics import amount_price_identity_summary
 from edup.data import load_processed_data
 from edup.exceptions import DataUnavailableError, ModelLoadError
+from edup.models.metadata import (
+    ModelMetadata,
+    ModelStatus,
+    compute_file_sha256,
+    get_library_versions,
+    compute_data_fingerprint,
+)
 
 
 def _json_metrics(metrics: dict[str, float]) -> dict[str, float]:
@@ -47,6 +56,57 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, default=str)
+
+
+def _create_model_metadata(
+    model_name: str,
+    model_type: str,
+    artifact_path: Path,
+    status: ModelStatus,
+    training_date_utc: str,
+    target_variable: str,
+    feature_names: list[str],
+    metrics: dict[str, Any],
+    training_data: pd.DataFrame | None = None,
+    notes: str = "",
+) -> ModelMetadata:
+    """Create ModelMetadata for a trained model artifact."""
+    sha256 = compute_file_sha256(artifact_path)
+    size = artifact_path.stat().st_size
+
+    training_data_fingerprint = None
+    training_data_shape = None
+    training_data_date_range = None
+    if training_data is not None:
+        training_data_fingerprint = compute_data_fingerprint(training_data)
+        training_data_shape = training_data.shape
+        if "TransactionDate" in training_data.columns:
+            dates = pd.to_datetime(training_data["TransactionDate"])
+            training_data_date_range = {
+                "start": dates.min().strftime("%Y-%m-%d"),
+                "end": dates.max().strftime("%Y-%m-%d"),
+            }
+
+    return ModelMetadata(
+        model_name=model_name,
+        model_type=model_type,
+        artifact_filename=artifact_path.name,
+        status=status,
+        training_date_utc=training_date_utc,
+        target_variable=target_variable,
+        feature_names=feature_names,
+        feature_order=feature_names,
+        training_data_fingerprint=training_data_fingerprint,
+        training_data_shape=training_data_shape,
+        training_data_date_range=training_data_date_range,
+        metrics=metrics,
+        python_version=f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        platform=platform.platform(),
+        library_versions=get_library_versions(),
+        artifact_sha256=sha256,
+        artifact_size_bytes=size,
+        notes=notes,
+    )
 
 
 def get_all_models() -> dict[str, Any]:
@@ -107,6 +167,43 @@ def audit_revenue_target(
         "legacy_artifact": str(models_dir / "revenue_model.pkl"),
     }
     _write_json(models_dir / "revenue_target_audit.json", payload)
+
+    # Also ensure revenue model metadata exists (for legacy artifact)
+    revenue_model_path = models_dir / "revenue_model.pkl"
+    if revenue_model_path.exists():
+        metadata_path = models_dir / "revenue_model_metadata.json"
+        if not metadata_path.exists():
+            metadata = _create_model_metadata(
+                model_name="revenue_model",
+                model_type="LinearRegression (Pipeline with ColumnTransformer + OneHotEncoder + StandardScaler)",
+                artifact_path=revenue_model_path,
+                status="retired",
+                training_date_utc=None,
+                target_variable="Amount (transaction amount)",
+                feature_names=[
+                    "CoursePrice", "CourseDuration", "CourseRating", "TeacherRating",
+                    "YearsOfExperience", "EncodedCourseLevel", "TeacherRatingScore",
+                    "ExpertiseCategoryMatch", "TransactionMonth", "Quarter", "IsWeekend",
+                    "CourseCategory", "CourseType", "PriceBand", "DurationBucket",
+                    "RatingTier", "ExperienceBucket", "SeasonalityLabel", "PaymentMethod",
+                ],
+                metrics={
+                    "r2": 1.0,
+                    "note": "R² = 1.0 because Amount == CoursePrice for paid transactions and 0 for free. "
+                            "This is an accounting identity / target leakage, not predictive skill. "
+                            "See revenue_target_audit.json for details.",
+                },
+                training_data=None,
+                notes=(
+                    "RETIRED: Revenue model is an accounting identity (Amount == CoursePrice). "
+                    "This model does not forecast revenue; it reconstructs the target from a feature. "
+                    "Phase 1 retired this model. Artifact preserved for audit only. "
+                    "Dashboard uses transparent price x reference-enrollment scenarios instead."
+                ),
+            )
+            metadata.write(metadata_path)
+            print(f"  Wrote metadata to {metadata_path.name}")
+
     print(f"  Amount-price identity holds: {identity['identity_holds']}")
     print(f"  Paid/free is course-level: {identity['paid_free_is_course_level']}")
     print("  Revenue regressor retired; legacy artifact preserved but not used.")
@@ -231,11 +328,42 @@ def train_enrollment_model(
         ),
     }
 
+    training_date_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
     if use_model:
         model_path = models_dir / "enrollment_model_phase1.pkl"
         joblib.dump(best_pipe, model_path)
         metrics["model_path"] = str(model_path)
         print(f"  Selected {best_name}; saved Phase 1 model to {model_path}")
+
+        # Generate and write model metadata
+        metadata = _create_model_metadata(
+            model_name="enrollment_model_phase1",
+            model_type=f"{best_name} (Pipeline with ColumnTransformer + OneHotEncoder + StandardScaler)",
+            artifact_path=model_path,
+            status="active",
+            training_date_utc=training_date_utc,
+            target_variable="EnrollmentCount (course-level)",
+            feature_names=FEATURE_COLUMNS,
+            metrics={
+                "baseline_cv_rmse": float(baseline_cv),
+                "baseline_test": _json_metrics(baseline_test),
+                "selected_cv_rmse": cv_results[best_name],
+                "selected_test": _json_metrics(best_test),
+                "cv_results_all": {k: float(v) for k, v in cv_results.items()},
+                "decision": metrics["decision"],
+            },
+            training_data=enrollment_df,
+            notes=(
+                "Phase 1 enrollment model trained with course-level features only. "
+                "Excludes transaction-level features (PaymentMethod, time features) "
+                "that are not available at course-design time. "
+                "Selected via 5-fold CV on training split; final evaluation on held-out test split. "
+                "Model only saved if it beats the mean baseline on both CV and test."
+            ),
+        )
+        metadata.write(models_dir / "enrollment_model_phase1_metadata.json")
+        print(f"  Wrote metadata to {model_path.with_suffix('.json').name}")
     else:
         metrics["model_path"] = None
         print(f"  Selected {best_name}, but it does not beat the mean baseline.")

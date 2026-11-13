@@ -9,6 +9,17 @@ from .models import (
     predict_enrollment,
     ModelLoadError,
 )
+from .metadata import (
+    ModelMetadata,
+    ModelStatus,
+    compute_file_sha256,
+    get_library_versions,
+    compute_data_fingerprint,
+    load_model_with_metadata,
+    validate_model_metadata,
+    generate_metadata_for_existing_artifacts,
+    write_all_metadata,
+)
 
 __all__ = [
     "train_enrollment_model",
@@ -19,4 +30,13 @@ __all__ = [
     "load_enrollment_model",
     "predict_enrollment",
     "ModelLoadError",
+    "ModelMetadata",
+    "ModelStatus",
+    "compute_file_sha256",
+    "get_library_versions",
+    "compute_data_fingerprint",
+    "load_model_with_metadata",
+    "validate_model_metadata",
+    "generate_metadata_for_existing_artifacts",
+    "write_all_metadata",
 ]
