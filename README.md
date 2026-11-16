@@ -16,13 +16,13 @@ This project is a research/demo analytics platform for EduPro, an online educati
 
 | Phase | Status | Focus | Key Outcomes |
 |-------|--------|-------|--------------|
-| **Phase 1** | ✅ Complete | Critical bugs & correctness | Retired leakage revenue model; fixed price-500 crash; removed invalid "optimal price"; corrected form inputs; fixed reporting contradictions (free=64.03%, top categories AI/Business/PM, ML=$133.38, Marketing=$0) |
-| **Phase 2** | ✅ Complete | Reliability & testing | 247 automated tests; strong data contracts; train/serve parity verified; dashboard handles missing/corrupt artifacts gracefully |
-| **Phase 3** | ✅ Complete | Architecture & code quality | Shared `src/edup/` package (config, schema, features, analytics, data, models, forecasting, reporting); dead code removed; typed exceptions; all tests pass |
-| **R3.3** | ✅ Complete | Code quality & observability | Type hints on public APIs; Ruff/Mypy clean; structured logging; exception taxonomy |
-| **R3.4** | ✅ Complete | Continuous Integration | GitHub Actions CI on push/PR; Python 3.11; dependency caching; 296 tests pass |
-| **R3.5** | ✅ Complete | Dependency reproducibility & model metadata | Pinned deps (`requirements.lock`); `pyproject.toml`; model metadata JSON for all artifacts |
-| **R4.1–R4.2** | ✅ Complete | Performance | Model caching (`st.cache_resource`); dashboard computation caching |
+| **Phase 1** | Complete | Critical bugs & correctness | Retired leakage revenue model; fixed price-500 crash; removed invalid "optimal price"; corrected form inputs; fixed reporting contradictions (free=64.03%, top categories AI/Business/PM, ML=$133.38, Marketing=$0) |
+| **Phase 2** | Complete | Reliability & testing | 247 automated tests; strong data contracts; train/serve parity verified; dashboard handles missing/corrupt artifacts gracefully |
+| **Phase 3** | Complete | Architecture & code quality | Shared `src/edup/` package (config, schema, features, analytics, data, models, forecasting, reporting); dead code removed; typed exceptions; all tests pass |
+| **R3.3** | Complete | Code quality & observability | Type hints on public APIs; Ruff/Mypy clean; structured logging; exception taxonomy |
+| **R3.4** | Complete | Continuous Integration | GitHub Actions CI on push/PR; Python 3.11; dependency caching; 296 tests pass |
+| **R3.5** | Complete | Dependency reproducibility & model metadata | Pinned deps (`requirements.lock`); `pyproject.toml`; model metadata JSON for all artifacts |
+| **R4.1–R4.2** | Complete | Performance | Model caching (`st.cache_resource`); dashboard computation caching |
 
 **The platform is now a well-tested, architecturally sound research prototype with CI, reproducible dependencies, and model metadata.**  
 It does **not** have a validated demand or revenue model—the data does not support one.
