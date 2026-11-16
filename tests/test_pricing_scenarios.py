@@ -1,7 +1,7 @@
 import os
 import re
 
-import business_facts as bf
+from edup.analytics.business_facts import revenue_scenarios
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -16,8 +16,8 @@ def test_app_has_no_optimal_price_or_idxmax_logic():
 
 
 def test_scenario_changes_with_assumption():
-    unchanged = bf.revenue_scenarios(100, 100, assumed_change_pct=0, prices=[100, 200])
-    reduced = bf.revenue_scenarios(100, 100, assumed_change_pct=-20, prices=[100, 200])
+    unchanged = revenue_scenarios(100, 100, assumed_change_pct=0, prices=[100, 200])
+    reduced = revenue_scenarios(100, 100, assumed_change_pct=-20, prices=[100, 200])
     assert unchanged.loc[1, 'ProjectedRevenue'] == 20000
     assert reduced.loc[1, 'ProjectedRevenue'] == 16000
     assert unchanged.loc[1, 'ProjectedEnrollments'] == 100
@@ -25,7 +25,7 @@ def test_scenario_changes_with_assumption():
 
 
 def test_scenario_has_break_even_but_no_recommendation():
-    table = bf.revenue_scenarios(100, 100, assumed_change_pct=0, prices=[100, 110, 125])
+    table = revenue_scenarios(100, 100, assumed_change_pct=0, prices=[100, 110, 125])
     assert 'BreakEvenEnrollmentChangePct' in table.columns
     assert not any('optimal' in c.lower() for c in table.columns)
     assert not any('recommend' in c.lower() for c in table.columns)

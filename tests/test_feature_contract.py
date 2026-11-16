@@ -1,7 +1,21 @@
 import pandas as pd
 import pytest
 
-import feature_contract as fc
+from edup.config import (
+    FEATURE_COLUMNS,
+    EXCLUDED_TRANSACTION_FEATURES,
+)
+from edup.features.features import (
+    price_band,
+    duration_bucket,
+    rating_tier,
+    experience_bucket,
+    build_feature_row,
+    validate_course_inputs,
+    encode_course_level,
+    build_feature_frame,
+    assert_feature_frame_contract,
+)
 
 
 @pytest.mark.parametrize('price,expected', [
@@ -10,13 +24,13 @@ import feature_contract as fc
     (200.01, 'Elite'), (500, 'Elite'),
 ])
 def test_price_band_boundaries(price, expected):
-    assert fc.price_band(price) == expected
+    assert price_band(price) == expected
 
 
 @pytest.mark.parametrize('price', [-0.01, 500.01, float('nan')])
 def test_price_band_rejects_unsupported_values(price):
     with pytest.raises(ValueError):
-        fc.price_band(price)
+        price_band(price)
 
 
 @pytest.mark.parametrize('duration,expected', [
@@ -24,44 +38,44 @@ def test_price_band_rejects_unsupported_values(price):
     (25.1, 'Long'), (50, 'Long'), (50.1, 'Extended'), (200, 'Extended'),
 ])
 def test_duration_bucket_boundaries(duration, expected):
-    assert fc.duration_bucket(duration) == expected
+    assert duration_bucket(duration) == expected
 
 
 @pytest.mark.parametrize('duration', [0, 200.01, float('nan')])
 def test_duration_bucket_rejects_unsupported_values(duration):
     with pytest.raises(ValueError):
-        fc.duration_bucket(duration)
+        duration_bucket(duration)
 
 
 def test_rating_and_experience_buckets():
-    assert fc.rating_tier(4.5) == 'Elite'
-    assert fc.rating_tier(4.0) == 'High'
-    assert fc.rating_tier(3.0) == 'Medium'
-    assert fc.rating_tier(2.9) == 'Low'
-    assert fc.experience_bucket(0) == 'Junior'
-    assert fc.experience_bucket(3) == 'Mid'
-    assert fc.experience_bucket(7) == 'Senior'
-    assert fc.experience_bucket(11) == 'Expert'
+    assert rating_tier(4.5) == 'Elite'
+    assert rating_tier(4.0) == 'High'
+    assert rating_tier(3.0) == 'Medium'
+    assert rating_tier(2.9) == 'Low'
+    assert experience_bucket(0) == 'Junior'
+    assert experience_bucket(3) == 'Mid'
+    assert experience_bucket(7) == 'Senior'
+    assert experience_bucket(11) == 'Expert'
 
 
 def test_build_feature_row_has_exact_contract():
-    row = fc.build_feature_row(
+    row = build_feature_row(
         'Business', 'Beginner', 99, 20, 5, 4.0, 'Paid', 4.0, 'PayPal')
-    assert list(row) == fc.FEATURE_COLUMNS
+    assert list(row) == FEATURE_COLUMNS
     assert row['CourseType'] == 'Paid'
     assert row['CourseRating'] == 4.0
-    assert row['PaymentMethod'] if 'PaymentMethod' in row else True
-    for excluded in fc.EXCLUDED_TRANSACTION_FEATURES:
+    assert row.get('PaymentMethod', True)
+    for excluded in EXCLUDED_TRANSACTION_FEATURES:
         assert excluded not in row
 
 
 def test_free_course_normalizes_price_and_keeps_inputs():
-    values = fc.validate_course_inputs(
+    values = validate_course_inputs(
         'Business', 'Beginner', 99, 20, 5, 4.0, 'Free', 3.5, 'PayPal')
     assert values['course_price'] == 0
     assert values['course_type'] == 'Free'
     assert values['course_rating'] == 3.5
-    row = fc.build_feature_row(
+    row = build_feature_row(
         'Business', 'Beginner', 99, 20, 5, 4.0, 'Free', 3.5, 'PayPal')
     assert row['CoursePrice'] == 0
     assert row['PriceBand'] == 'Free'
@@ -70,25 +84,25 @@ def test_free_course_normalizes_price_and_keeps_inputs():
 
 def test_paid_course_requires_positive_price():
     with pytest.raises(ValueError, match='Paid courses require'):
-        fc.validate_course_inputs(
+        validate_course_inputs(
             'Business', 'Beginner', 0, 20, 5, 4.0, 'Paid', 4.0, 'Credit Card')
 
 
 def test_invalid_category_level_and_payment_raise():
     with pytest.raises(ValueError, match='Course category'):
-        fc.build_feature_row('Nope', 'Beginner', 99, 20, 5, 4.0)
+        build_feature_row('Nope', 'Beginner', 99, 20, 5, 4.0)
     with pytest.raises(ValueError, match='Course level'):
-        fc.build_feature_row('Business', 'Nope', 99, 20, 5, 4.0)
+        build_feature_row('Business', 'Nope', 99, 20, 5, 4.0)
     with pytest.raises(ValueError, match='Payment method'):
-        fc.build_feature_row('Business', 'Beginner', 99, 20, 5, 4.0,
-                             payment_method='Cash')
+        build_feature_row('Business', 'Beginner', 99, 20, 5, 4.0,
+                          payment_method='Cash')
 
 
 def test_feature_frame_contract_and_order():
-    frame = fc.build_feature_frame(
+    frame = build_feature_frame(
         course_category='Business', course_level='Intermediate',
         course_price=99, course_duration=20, teacher_experience=5,
         teacher_rating=4.0)
     assert isinstance(frame, pd.DataFrame)
-    assert list(frame.columns) == fc.FEATURE_COLUMNS
-    fc.assert_feature_frame_contract(frame)
+    assert list(frame.columns) == FEATURE_COLUMNS
+    assert_feature_frame_contract(frame)

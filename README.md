@@ -92,7 +92,8 @@ EduPro-Predictive-Modeling/
 │   └── *.png                         # EDA and evaluation charts
 ├── tests/                            # 296 automated tests
 ├── run_pipeline.py                   # One-command full pipeline runner
-├── requirements.txt                  # Python dependencies
+├── pyproject.toml                    # Project config, dependencies, tool settings
+├── requirements.lock                 # Fully pinned dependencies (runtime + test)
 └── README.md                         # This file
 ```
 
@@ -148,7 +149,7 @@ Raw Excel Data
 ## Installation
 
 ### Prerequisites
-- Python 3.9 or higher
+- Python 3.11 or higher (project requires `>=3.11`)
 - pip
 
 ### Setup
@@ -162,12 +163,24 @@ python -m venv venv
 source venv/bin/activate        # Linux/macOS
 venv\Scripts\activate           # Windows
 
-# 3. Install dependencies
-pip install -r requirements.txt
+# 3. Install dependencies — choose one approach:
+
+# Option A: Reproducible environment (recommended for CI, deployment, exact reproducibility)
+# Uses the fully pinned lock file containing all runtime + test dependencies.
+pip install -r requirements.lock
+
+# Option B: Editable development installation
+# Installs the package in development mode from pyproject.toml.
+# For running tests, also install the dev dependencies:
+pip install -e .[dev]
 
 # 4. Ensure the raw data file is in place
 # data/EduPro_Online_Platform.xlsx should already be present
 ```
+
+**When to use which:**
+- **`pip install -r requirements.lock`** — CI pipelines, production deployments, exact environment reproduction, and when you want a single command that includes everything (runtime + pytest).
+- **`pip install -e .[dev]`** — Local development when you want to edit `src/edup/` code and have changes immediately available, plus access to `pytest`, `ruff`, `mypy` via the dev extras.
 
 ---
 

@@ -6,7 +6,15 @@ import pytest
 pytest.importorskip('sklearn')
 pytest.importorskip('xgboost')
 
-import feature_contract as fc
+from edup.config import (
+    NUMERIC_FEATURES,
+    CATEGORICAL_FEATURES,
+    FEATURE_COLUMNS,
+    EXCLUDED_TRANSACTION_FEATURES,
+)
+from edup.features.features import (
+    build_feature_row,
+)
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -54,7 +62,7 @@ def test_target_rows_match_inference_built_from_raw_course_data(df):
 
     for _, target_row in target.iterrows():
         group = df[df['CourseID'] == target_row['CourseID']]
-        expected = fc.build_feature_row(
+        expected = build_feature_row(
             course_category=group['CourseCategory'].iloc[0],
             course_level=group['CourseLevel'].iloc[0],
             course_price=group['CoursePrice'].iloc[0],
@@ -64,7 +72,7 @@ def test_target_rows_match_inference_built_from_raw_course_data(df):
             course_type=group['CourseType'].iloc[0],
             course_rating=group['CourseRating'].iloc[0],
         )
-        for column in fc.FEATURE_COLUMNS:
+        for column in FEATURE_COLUMNS:
             _assert_feature_equal(expected[column], target_row[column], column)
 
 
@@ -76,9 +84,9 @@ def test_course_level_inputs_are_constant_within_each_course(df):
 
 
 def test_feature_lists_are_disjoint_complete_and_ordered():
-    assert not set(fc.NUMERIC_FEATURES) & set(fc.CATEGORICAL_FEATURES)
-    assert fc.FEATURE_COLUMNS == fc.NUMERIC_FEATURES + fc.CATEGORICAL_FEATURES
-    assert not set(fc.EXCLUDED_TRANSACTION_FEATURES) & set(fc.FEATURE_COLUMNS)
+    assert not set(NUMERIC_FEATURES) & set(CATEGORICAL_FEATURES)
+    assert FEATURE_COLUMNS == NUMERIC_FEATURES + CATEGORICAL_FEATURES
+    assert not set(EXCLUDED_TRANSACTION_FEATURES) & set(FEATURE_COLUMNS)
 
 
 def test_training_target_levels_are_within_inference_domain(df):

@@ -28,3 +28,17 @@ backups/
 .DS_Store
 Thumbs.db
 *:Zone.Identifier
+
+# Jupyter
+*.ipynb
+.ipynb_checkpoints/
+
+# Python packaging
+dist/
+build/
+*.egg-info/
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*

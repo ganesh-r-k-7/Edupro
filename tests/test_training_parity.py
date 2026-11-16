@@ -8,7 +8,12 @@ import pytest
 pytest.importorskip('sklearn')
 pytest.importorskip('xgboost')
 
-import feature_contract as fc
+from edup.config import (
+    FEATURE_COLUMNS,
+)
+from edup.features.features import (
+    build_feature_row,
+)
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,7 +33,7 @@ def test_training_rows_match_inference_feature_contract(df):
     level_map = {1: 'Beginner', 2: 'Intermediate', 3: 'Advanced'}
 
     for _, row in target.iterrows():
-        expected = fc.build_feature_row(
+        expected = build_feature_row(
             course_category=row['CourseCategory'],
             course_level=level_map[int(row['EncodedCourseLevel'])],
             course_price=row['CoursePrice'],
@@ -38,7 +43,7 @@ def test_training_rows_match_inference_feature_contract(df):
             course_type=row['CourseType'],
             course_rating=row['CourseRating'],
         )
-        for column in fc.FEATURE_COLUMNS:
+        for column in FEATURE_COLUMNS:
             if isinstance(expected[column], str):
                 assert expected[column] == row[column], column
             else:

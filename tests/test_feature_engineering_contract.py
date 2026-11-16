@@ -3,7 +3,40 @@ import os
 
 import pandas as pd
 
-import feature_contract as fc
+from edup.config import (
+    COURSE_CATEGORIES,
+    COURSE_LEVELS,
+    COURSE_TYPES,
+    PAYMENT_METHODS,
+    PRICE_BANDS,
+    DURATION_BUCKETS,
+    RATING_TIERS,
+    EXPERIENCE_BUCKETS,
+    SEASONALITY_LABELS,
+    MAX_PRICE,
+    MIN_PRICE,
+    MAX_DURATION,
+    MIN_DURATION,
+    MIN_RATING,
+    MAX_RATING,
+    MIN_EXPERIENCE,
+    MAX_EXPERIENCE,
+    PRICE_BAND_EDGES,
+    DURATION_BUCKET_EDGES,
+    NUMERIC_FEATURES,
+    CATEGORICAL_FEATURES,
+    FEATURE_COLUMNS,
+    EXCLUDED_TRANSACTION_FEATURES,
+)
+from edup.features.features import (
+    price_band,
+    duration_bucket,
+    rating_tier,
+    encode_course_level,
+    experience_bucket,
+    teacher_rating_score,
+    seasonality_label,
+)
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,14 +62,14 @@ def test_feature_engineering_uses_canonical_contract(df):
     work = module.add_expertise_category_match(work)
     work = module.add_time_features(work)
 
-    assert work['PriceBand'].tolist() == df['CoursePrice'].apply(fc.price_band).tolist()
-    assert work['DurationBucket'].tolist() == df['CourseDuration'].apply(fc.duration_bucket).tolist()
-    assert work['RatingTier'].tolist() == df['CourseRating'].apply(fc.rating_tier).tolist()
-    assert work['EncodedCourseLevel'].tolist() == df['CourseLevel'].apply(fc.encode_course_level).tolist()
-    assert work['ExperienceBucket'].tolist() == df['YearsOfExperience'].apply(fc.experience_bucket).tolist()
-    expected_score = df['TeacherRating'].apply(fc.teacher_rating_score)
+    assert work['PriceBand'].tolist() == df['CoursePrice'].apply(price_band).tolist()
+    assert work['DurationBucket'].tolist() == df['CourseDuration'].apply(duration_bucket).tolist()
+    assert work['RatingTier'].tolist() == df['CourseRating'].apply(rating_tier).tolist()
+    assert work['EncodedCourseLevel'].tolist() == df['CourseLevel'].apply(encode_course_level).tolist()
+    assert work['ExperienceBucket'].tolist() == df['YearsOfExperience'].apply(experience_bucket).tolist()
+    expected_score = df['TeacherRating'].apply(teacher_rating_score)
     assert work['TeacherRatingScore'].tolist() == expected_score.tolist()
-    assert work['SeasonalityLabel'].tolist() == df['TransactionDate'].dt.quarter.apply(fc.seasonality_label).tolist()
+    assert work['SeasonalityLabel'].tolist() == df['TransactionDate'].dt.quarter.apply(seasonality_label).tolist()
 
 
 def test_feature_engineering_is_idempotent_on_temporary_copy(tmp_path, df, monkeypatch):
