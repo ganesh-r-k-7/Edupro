@@ -11,6 +11,7 @@ Creates advanced engineered features for ML models:
 
 import os
 import sys
+from pathlib import Path
 
 import pandas as pd
 
@@ -20,7 +21,7 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from edup.config import PROCESSED_DATA_PATH, ENGINEERED_COLUMNS
+from edup.config import PROCESSED_DATA_PATH, PROCESSED_DATA_PARQUET, ENGINEERED_COLUMNS
 from edup.features import (
     price_band,
     duration_bucket,
@@ -34,10 +35,36 @@ from edup.features import (
 
 DATA_PATH = PROCESSED_DATA_PATH
 OUTPUT_PATH = PROCESSED_DATA_PATH
+OUTPUT_PARQUET = PROCESSED_DATA_PARQUET
+
+
+def _derive_parquet_path(output_path: str) -> str:
+    """Derive parquet path from output path."""
+    return str(Path(output_path).with_suffix(".parquet"))
+
+
+def _load_parquet_or_csv(path):
+    """Load processed data from Parquet (preferred) or CSV (fallback)."""
+    path = Path(path)
+    parquet_path = path.with_suffix(".parquet")
+
+    # Try Parquet first
+    if parquet_path.exists():
+        try:
+            return pd.read_parquet(parquet_path)
+        except Exception as exc:
+            print(f"Warning: Failed to read Parquet file {parquet_path}: {exc}. Falling back to CSV.")
+            # Fall through to CSV
+
+    # Fall back to CSV
+    if path.exists():
+        return pd.read_csv(path, parse_dates=["TransactionDate"])
+
+    raise FileNotFoundError(f"Processed data file not found: {path} (or {parquet_path})")
 
 
 def load_data():
-    df = pd.read_csv(DATA_PATH, parse_dates=['TransactionDate'])
+    df = _load_parquet_or_csv(DATA_PATH)
     print(f"Loaded: {df.shape}")
     return df
 
@@ -149,7 +176,7 @@ def run_feature_engineering():
     """Execute complete feature engineering pipeline.
 
     Engineered columns are dropped first so rerunning the step does not create
-    duplicate ``_x``/``_y`` columns. The output is written atomically.
+    duplicate ``_x``/``_y`` columns. The output is written atomically to both CSV and Parquet.
     """
     df = load_data()
     df = df.drop(columns=[c for c in ENGINEERED_COLUMNS if c in df.columns])
@@ -167,10 +194,18 @@ def run_feature_engineering():
     df = add_historical_features(df)
     df = add_rolling_revenue(df)
 
+    # Write CSV (atomic)
     temp_path = f"{OUTPUT_PATH}.tmp"
     df.to_csv(temp_path, index=False)
     os.replace(temp_path, OUTPUT_PATH)
-    print(f"Feature-engineered dataset saved: {OUTPUT_PATH}")
+
+    # Write Parquet (atomic) - derive path from OUTPUT_PATH for testability
+    parquet_path = _derive_parquet_path(OUTPUT_PATH)
+    temp_parquet = f"{parquet_path}.tmp"
+    df.to_parquet(temp_parquet, compression="zstd", index=False)
+    os.replace(temp_parquet, parquet_path)
+
+    print(f"Feature-engineered dataset saved: {OUTPUT_PATH} and {parquet_path}")
     print(f"Shape: {df.shape}")
     print(f"New columns: {[c for c in df.columns if c not in ['TransactionID','UserID','CourseID','TeacherID']]}")
     return df

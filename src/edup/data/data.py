@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from edup.config import PROCESSED_DATA_PATH, RAW_DATA_PATH
+from edup.config import PROCESSED_DATA_PATH, PROCESSED_DATA_PARQUET, RAW_DATA_PATH
 from edup.exceptions import DataUnavailableError
 from edup.logging import logger_data
 from edup.schema import validate_processed_data, validate_sheet_schemas
@@ -86,31 +86,67 @@ def preprocess_data(
     validate_processed_data(df)
 
     output_path = output_path or PROCESSED_DATA_PATH
+    output_path = Path(output_path)
+    parquet_path = output_path.with_suffix(".parquet")
+
+    # Write CSV (atomic)
     temp_path = f"{output_path}.tmp"
     df.to_csv(temp_path, index=False)
     os.replace(temp_path, output_path)
-    logger_data.info("Saved processed data to %s (%d rows)", output_path, len(df))
+
+    # Write Parquet (atomic)
+    temp_parquet = f"{parquet_path}.tmp"
+    df.to_parquet(temp_parquet, compression="zstd", index=False)
+    os.replace(temp_parquet, parquet_path)
+
+    logger_data.info("Saved processed data to %s and %s (%d rows)", output_path, parquet_path, len(df))
 
     return df
 
 
-def load_processed_data(path: Path | str | None = None) -> pd.DataFrame:
-    """Load and validate the feature-engineered dataset."""
-    path = path or PROCESSED_DATA_PATH
-    if not os.path.exists(path):
-        raise DataUnavailableError(
-            f"Processed data file not found: {path}. "
-            "Run the preprocessing and feature-engineering steps."
-        )
-    try:
-        logger_data.info("Loading processed data from %s", path)
-        df = pd.read_csv(path, parse_dates=["TransactionDate"])
-    except pd.errors.EmptyDataError as exc:
-        raise DataUnavailableError(f"Processed data file is empty: {path}.") from exc
-    except (pd.errors.ParserError, ValueError, OSError) as exc:
-        raise DataUnavailableError(
-            f"Processed data could not be read from {path}: {exc}"
-        ) from exc
+def _load_parquet_or_csv(path: Path | str) -> pd.DataFrame:
+    """Load processed data from Parquet (preferred) or CSV (fallback)."""
+    path = Path(path)
+    parquet_path = path.with_suffix(".parquet")
 
+    # Try Parquet first
+    if parquet_path.exists():
+        try:
+            logger_data.info("Loading processed data from Parquet: %s", parquet_path)
+            return pd.read_parquet(parquet_path)
+        except Exception as exc:
+            logger_data.warning(
+                "Failed to read Parquet file %s: %s. Falling back to CSV.",
+                parquet_path,
+                exc,
+            )
+            # Fall through to CSV
+
+    # Fall back to CSV
+    if path.exists():
+        try:
+            logger_data.info("Loading processed data from CSV: %s", path)
+            return pd.read_csv(path, parse_dates=["TransactionDate"])
+        except pd.errors.EmptyDataError as exc:
+            raise DataUnavailableError(f"Processed data file is empty: {path}.") from exc
+        except (pd.errors.ParserError, ValueError, OSError) as exc:
+            raise DataUnavailableError(
+                f"Processed data could not be read from {path}: {exc}"
+            ) from exc
+
+    # Neither format exists
+    raise DataUnavailableError(
+        f"Processed data file not found: {path} (or {parquet_path}). "
+        "Run the preprocessing and feature-engineering steps."
+    )
+
+
+def load_processed_data(path: Path | str | None = None) -> pd.DataFrame:
+    """Load and validate the feature-engineered dataset.
+
+    Prefers Parquet format when available, falls back to CSV.
+    """
+    path = path or PROCESSED_DATA_PATH
+    df = _load_parquet_or_csv(path)
     logger_data.info("Loaded %d transactions", len(df))
     return validate_processed_data(df)

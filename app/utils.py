@@ -37,7 +37,10 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 # Backward-compatible constants for app.py and tests
-DATA_PATH = os.path.join(BASE_DIR, '..', 'data', 'processed_data.csv')
+# Prefer Parquet when available, fall back to CSV
+_DATA_CSV = os.path.join(BASE_DIR, '..', 'data', 'processed_data.csv')
+_DATA_PARQUET = os.path.join(BASE_DIR, '..', 'data', 'processed_data.parquet')
+DATA_PATH = _DATA_PARQUET if os.path.exists(_DATA_PARQUET) else _DATA_CSV
 MODELS_DIR = os.path.join(BASE_DIR, '..', 'models')
 
 # Import from shared package
@@ -56,6 +59,8 @@ from edup.config import (
     MAX_EXPERIENCE,
     FEATURE_COLUMNS,
     FORECAST_REQUIRED_COLUMNS,
+    PROCESSED_DATA_PATH,
+    PROCESSED_DATA_PARQUET,
 )
 from edup.data import load_processed_data
 from edup.analytics import (
@@ -99,9 +104,14 @@ feature_contract = _FeatureContract()
 # ─── Cached Dashboard Computations (R4.2) ──────────────────────────────────────
 
 def _get_data_hash() -> str:
-    """Generate a hash of the processed data file for cache invalidation."""
+    """Generate a hash of the processed data file for cache invalidation.
+
+    Checks the active data source (Parquet preferred, CSV fallback).
+    """
+    # Use the same logic as DATA_PATH to determine active source
+    active_path = _DATA_PARQUET if os.path.exists(_DATA_PARQUET) else _DATA_CSV
     try:
-        stat = os.stat(DATA_PATH)
+        stat = os.stat(active_path)
         return f"{stat.st_mtime_ns}_{stat.st_size}"
     except OSError:
         return "no_data"

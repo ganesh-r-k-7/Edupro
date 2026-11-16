@@ -12,7 +12,7 @@ from pathlib import Path
 
 # ─── Project Root ──────────────────────────────────────────────────────────────
 
-ROOT_DIR = Path(__file__).resolve().parents[3]
+ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
 MODELS_DIR = ROOT_DIR / "models"
 REPORTS_DIR = ROOT_DIR / "reports"
@@ -21,6 +21,7 @@ REPORTS_DIR = ROOT_DIR / "reports"
 
 RAW_DATA_PATH = DATA_DIR / "EduPro_Online_Platform.xlsx"
 PROCESSED_DATA_PATH = DATA_DIR / "processed_data.csv"
+PROCESSED_DATA_PARQUET = DATA_DIR / "processed_data.parquet"
 
 # ─── Categorical Domains ───────────────────────────────────────────────────────
 
