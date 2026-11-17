@@ -422,16 +422,25 @@ def train_enrollment_model(
 
 def load_enrollment_model(model_path: Path | str | None = None) -> Pipeline:
     """Load the enrollment model pipeline."""
-    model_path = model_path or (MODELS_DIR / "enrollment_model_phase1.pkl")
-    if not os.path.exists(model_path):
-        # Fall back to legacy model
-        legacy_path = MODELS_DIR / "enrollment_model.pkl"
-        if os.path.exists(legacy_path):
-            model_path = legacy_path
-        else:
-            raise ModelLoadError(f"Enrollment model not found at {model_path} or {legacy_path}")
+    default_path = MODELS_DIR / "enrollment_model_phase1.pkl"
+    legacy_path = MODELS_DIR / "enrollment_model.pkl"
+
+    if model_path is not None:
+        # Explicit path provided: use it directly, no fallback
+        path = Path(model_path)
+        if not path.exists():
+            raise ModelLoadError(f"Enrollment model not found at {path}")
+    elif default_path.exists():
+        path = default_path
+    elif legacy_path.exists():
+        path = legacy_path
+    else:
+        raise ModelLoadError(
+            f"Enrollment model not found at {default_path} or {legacy_path}"
+        )
+
     try:
-        return joblib.load(model_path)
+        return joblib.load(path)
     except Exception as exc:
         raise ModelLoadError(f"Failed to load enrollment model: {exc}") from exc
 

@@ -20,7 +20,7 @@ This project is a research/demo analytics platform for EduPro, an online educati
 | **Phase 2** | Complete | Reliability & testing | 247 automated tests; strong data contracts; train/serve parity verified; dashboard handles missing/corrupt artifacts gracefully |
 | **Phase 3** | Complete | Architecture & code quality | Shared `src/edup/` package (config, schema, features, analytics, data, models, forecasting, reporting); dead code removed; typed exceptions; all tests pass |
 | **R3.3** | Complete | Code quality & observability | Type hints on public APIs; Ruff/Mypy clean; structured logging; exception taxonomy |
-| **R3.4** | Complete | Continuous Integration | GitHub Actions CI on push/PR; Python 3.11; dependency caching; 296 tests pass |
+| **R3.4** | Complete | Continuous Integration | GitHub Actions CI on push/PR; Python 3.12; dependency caching; 296 tests pass |
 | **R3.5** | Complete | Dependency reproducibility & model metadata | Pinned deps (`requirements.lock`); `pyproject.toml`; model metadata JSON for all artifacts |
 | **R4.1–R4.2** | Complete | Performance | Model caching (`st.cache_resource`); dashboard computation caching |
 
@@ -149,7 +149,7 @@ Raw Excel Data
 ## Installation
 
 ### Prerequisites
-- Python 3.11 or higher (project requires `>=3.11`)
+- Python 3.12 or higher (project requires `>=3.12`)
 - pip
 
 ### Setup
