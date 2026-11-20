@@ -1,0 +1,59 @@
+{
+  "generated_utc": "2026-11-20T08:00:47.503256+00:00",
+  "target": "EnrollmentCount (course-level)",
+  "n_courses": 60,
+  "features": [
+    "CoursePrice",
+    "CourseDuration",
+    "CourseRating",
+    "TeacherRating",
+    "YearsOfExperience",
+    "EncodedCourseLevel",
+    "TeacherRatingScore",
+    "CourseCategory",
+    "CourseType",
+    "PriceBand",
+    "DurationBucket",
+    "RatingTier",
+    "ExperienceBucket"
+  ],
+  "excluded_transaction_features": [
+    "PaymentMethod",
+    "TransactionMonth",
+    "Quarter",
+    "IsWeekend",
+    "SeasonalityLabel",
+    "ExpertiseCategoryMatch"
+  ],
+  "split": {
+    "test_size": 0.2,
+    "random_state": 42
+  },
+  "cv_folds": 5,
+  "baseline": {
+    "name": "DummyRegressor(mean)",
+    "cv_rmse": 12.266004599894021,
+    "test": {
+      "MAE": 10.527777777777777,
+      "RMSE": 13.728518573474057,
+      "R2": -0.03429878048780477
+    }
+  },
+  "selected_model": "RandomForest",
+  "candidate_cv_rmse": {
+    "LinearRegression": 18.498056545430938,
+    "Ridge": 13.596803253913265,
+    "Lasso": 14.81471729816588,
+    "RandomForest": 13.046373332460533,
+    "GradientBoosting": 16.128125667478468,
+    "XGBoost": 14.610476430023477
+  },
+  "selected_test": {
+    "MAE": 11.457916666666664,
+    "RMSE": 14.070614695764593,
+    "R2": -0.08648767149390202
+  },
+  "use_model": false,
+  "decision": "do not use model: it does not beat the mean baseline on both CV and test",
+  "model_path": null
+}

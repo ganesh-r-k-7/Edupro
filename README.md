@@ -12,7 +12,7 @@ This project is a research/demo analytics platform for EduPro, an online educati
 
 ## Current Project Stage
 
-**Completed: Phases 1–3 (Architecture & Correctness) + R3.3–R3.5, R3.4 CI, R4.1–R4.2**
+**Completed: Phases 1–3 (Architecture & Correctness) + R3.3–R3.5, R3.4 CI, R4.1–R4.4**
 
 | Phase | Status | Focus | Key Outcomes |
 |-------|--------|-------|--------------|
@@ -23,8 +23,10 @@ This project is a research/demo analytics platform for EduPro, an online educati
 | **R3.4** | Complete | Continuous Integration | GitHub Actions CI on push/PR; Python 3.12; dependency caching; 296 tests pass |
 | **R3.5** | Complete | Dependency reproducibility & model metadata | Pinned deps (`requirements.lock`); `pyproject.toml`; model metadata JSON for all artifacts |
 | **R4.1–R4.2** | Complete | Performance | Model caching (`st.cache_resource`); dashboard computation caching |
+| **R4.3** | Complete | Data loading | Parquet-first with CSV fallback |
+| **R4.4** | Complete | Enrollment Prediction API | FastAPI REST API with health, model-info, and prediction endpoints; 60 API tests; Swagger at `/docs` |
 
-**The platform is now a well-tested, architecturally sound research prototype with CI, reproducible dependencies, and model metadata.**  
+**The platform is now a well-tested, architecturally sound research prototype with CI, reproducible dependencies, model metadata, and a REST API.**  
 It does **not** have a validated demand or revenue model—the data does not support one.
 
 ---
@@ -59,7 +61,8 @@ The source file `data/EduPro_Online_Platform.xlsx` contains four sheets:
 EduPro-Predictive-Modeling/
 ├── data/
 │   ├── EduPro_Online_Platform.xlsx   # Raw data
-│   └── processed_data.csv            # Feature-engineered dataset
+│   ├── processed_data.csv            # Feature-engineered dataset (CSV fallback)
+│   └── processed_data.parquet        # Feature-engineered dataset (Parquet preferred)
 ├── notebooks/
 │   ├── 01_data_preprocessing.py      # Data merging, cleaning, encoding
 │   ├── 02_eda.py                     # Exploratory visualizations
@@ -82,7 +85,8 @@ EduPro-Predictive-Modeling/
 │   ├── models/                       # Training, evaluation, prediction
 │   ├── forecasting/                  # Prophet/ARIMA, backtest, validation
 │   ├── reporting/                    # Executive summary, research paper generation
-│   └── app/                          # Thin dashboard utilities
+│   ├── app/                          # Thin dashboard utilities
+│   └── api/                          # FastAPI REST API (R4.4)
 ├── app/
 │   ├── app.py                        # Streamlit multi-page dashboard
 │   └── utils.py                      # Backward-compatible facade to src/edup
@@ -90,7 +94,7 @@ EduPro-Predictive-Modeling/
 │   ├── executive_summary.md          # Business stakeholder summary
 │   ├── research_paper.md             # Academic-style technical report
 │   └── *.png                         # EDA and evaluation charts
-├── tests/                            # 296 automated tests
+├── tests/                            # 381 automated tests (321 core + 60 API)
 ├── run_pipeline.py                   # One-command full pipeline runner
 ├── pyproject.toml                    # Project config, dependencies, tool settings
 ├── requirements.lock                 # Fully pinned dependencies (runtime + test)
@@ -238,6 +242,7 @@ python notebooks/06_forecasting.py
 | Forecasting | Prophet |
 | Visualization | Plotly, Matplotlib, Seaborn |
 | Dashboard | Streamlit |
+| API Framework | FastAPI, Uvicorn |
 | Persistence | joblib |
 | CI / Lint / Type Check | GitHub Actions, Ruff, Mypy, pytest |
 | Dependency Management | pip, `pyproject.toml`, `requirements.lock` |
@@ -264,6 +269,292 @@ The six-month Prophet output is cached model output. It has not been backtested 
 3. **Machine Learning revenue is $133.38** (0.0146%) and **Marketing revenue is $0.00**. Do not recommend ML/Marketing as leading investment categories from this data.
 4. **There is no clear Q1 peak.** Q1 had 2,456 enrollments and $231,643.16 revenue; Q2 had 2,555 and $231,406.06.
 5. **Price response is not identifiable.** Each course has one observed price and there are no within-course price changes. The dashboard provides what-if scenarios, not an estimated elasticity or an optimal price.
+
+---
+
+## Enrollment Prediction API (R4.4)
+
+The EduPro Enrollment Prediction API provides a REST interface for programmatic access to enrollment predictions, model health, and model metadata.
+
+### Installation
+
+The API dependencies are included in the main installation:
+
+```bash
+# Using lock file (recommended)
+pip install -r requirements.lock
+
+# Or using editable install with dev dependencies
+pip install -e .[dev]
+```
+
+### Local Startup
+
+```bash
+# Start the API server with Uvicorn
+uvicorn edup.api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+The API will be available at:
+- **API Base**: `http://localhost:8000`
+- **Swagger UI**: `http://localhost:8000/docs`
+- **ReDoc**: `http://localhost:8000/redoc`
+- **OpenAPI JSON**: `http://localhost:8000/openapi.json`
+
+### Endpoints
+
+#### GET /health
+
+Returns API status, model availability, and model identity/version. Does not reload the model.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "model_available": true,
+  "model_name": "enrollment_model_phase1",
+  "model_version": "enrollment_model_phase1.pkl"
+}
+```
+
+**Status values:** `healthy` (model loaded), `degraded` (model not available)
+
+---
+
+#### GET /model-info
+
+Returns safe model information: name, type, version, features, training metadata, and status. Never exposes filesystem paths, secrets, or sensitive internal information.
+
+**Response:**
+```json
+{
+  "model_name": "enrollment_model_phase1",
+  "model_type": "RandomForest (Pipeline with ColumnTransformer + OneHotEncoder + StandardScaler)",
+  "model_version": "enrollment_model_phase1.pkl",
+  "status": "active",
+  "feature_names": [
+    "CoursePrice",
+    "CourseDuration",
+    "CourseRating",
+    "TeacherRating",
+    "YearsOfExperience",
+    "EncodedCourseLevel",
+    "TeacherRatingScore",
+    "CourseCategory",
+    "CourseType",
+    "PriceBand",
+    "DurationBucket",
+    "RatingTier",
+    "ExperienceBucket"
+  ],
+  "target_variable": "EnrollmentCount (course-level)",
+  "training_date_utc": "2026-11-20T08:00:47.503256+00:00",
+  "metrics": {
+    "baseline_cv_rmse": 12.27,
+    "selected_cv_rmse": 13.05,
+    "selected_test": {"MAE": 11.46, "RMSE": 14.07, "R2": -0.09}
+  },
+  "notes": "Phase 1 enrollment model trained with course-level features only..."
+}
+```
+
+**Error (503):** Model not available.
+
+---
+
+#### POST /predict/enrollment
+
+Predicts enrollment for a course configuration using the canonical feature engineering shared with the Streamlit dashboard.
+
+**Request:**
+```json
+{
+  "course_category": "Programming",
+  "course_level": "Beginner",
+  "course_price": 99.0,
+  "course_duration": 20.0,
+  "teacher_experience": 5.0,
+  "teacher_rating": 4.0,
+  "course_type": "Paid",
+  "course_rating": 4.0,
+  "payment_method": "Credit Card"
+}
+```
+
+**Required fields:** `course_category`, `course_level`, `course_price`, `course_duration`, `teacher_experience`, `teacher_rating`
+
+**Optional fields:** `course_type` (default: "Paid"), `course_rating` (default: 4.0), `payment_method` (default: "Credit Card")
+
+**Validation:**
+- `course_category`: Must be one of 12 valid categories
+- `course_level`: Must be "Beginner", "Intermediate", or "Advanced"
+- `course_type`: Must be "Paid" or "Free"
+- `payment_method`: Must be "Credit Card", "PayPal", or "Bank Transfer"
+- `course_price`: 0–500 (0 only allowed for Free courses)
+- `course_duration`: 1–200 hours
+- `course_rating` / `teacher_rating`: 1.0–5.0
+- `teacher_experience`: 0–30 years
+- Free courses automatically normalize price to 0; Paid courses require price > 0
+
+**Response:**
+```json
+{
+  "predicted_enrollment": 167.5,
+  "model_name": "enrollment_model_phase1",
+  "model_version": "enrollment_model_phase1.pkl",
+  "features_used": [
+    "CoursePrice",
+    "CourseDuration",
+    "CourseRating",
+    "TeacherRating",
+    "YearsOfExperience",
+    "EncodedCourseLevel",
+    "TeacherRatingScore",
+    "CourseCategory",
+    "CourseType",
+    "PriceBand",
+    "DurationBucket",
+    "RatingTier",
+    "ExperienceBucket"
+  ]
+}
+```
+
+**Errors:**
+- **400**: Validation error (invalid input values, e.g., price out of bounds)
+- **422**: Schema validation error (missing required fields, invalid enum values)
+- **503**: Model not loaded
+- **500**: Internal prediction failure
+
+**Error response format:**
+```json
+{
+  "error": "ValidationError",
+  "message": "Course price must be between $0 and $500; got 600.00.",
+  "details": {"field": "request_body"}
+}
+```
+
+---
+
+### Example Prediction Request (cURL)
+
+```bash
+curl -X POST "http://localhost:8000/predict/enrollment" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "course_category": "Programming",
+    "course_level": "Beginner",
+    "course_price": 99.0,
+    "course_duration": 20.0,
+    "teacher_experience": 5.0,
+    "teacher_rating": 4.0,
+    "course_type": "Paid",
+    "course_rating": 4.0,
+    "payment_method": "Credit Card"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "predicted_enrollment": 167.5,
+  "model_name": "enrollment_model_phase1",
+  "model_version": "enrollment_model_phase1.pkl",
+  "features_used": [
+    "CoursePrice",
+    "CourseDuration",
+    "CourseRating",
+    "TeacherRating",
+    "YearsOfExperience",
+    "EncodedCourseLevel",
+    "TeacherRatingScore",
+    "CourseCategory",
+    "CourseType",
+    "PriceBand",
+    "DurationBucket",
+    "RatingTier",
+    "ExperienceBucket"
+  ]
+}
+```
+
+### Error Response Examples
+
+**Missing required field (422):**
+```json
+{
+  "detail": [
+    {
+      "type": "missing",
+      "loc": ["body", "course_price"],
+      "msg": "Field required",
+      "input": {"course_category": "Programming", "course_level": "Beginner"}
+    }
+  ]
+}
+```
+
+**Invalid value (400):**
+```json
+{
+  "error": "ValidationError",
+  "message": "course_price must be between $0 and $500; got 600.00.",
+  "details": {"field": "request_body"}
+}
+```
+
+**Model unavailable (503):**
+```json
+{
+  "error": "HTTPException",
+  "message": "Enrollment model not loaded. Check model artifacts and server logs.",
+  "details": {"status_code": 503}
+}
+```
+
+**Internal error (500):**
+```json
+{
+  "error": "InternalServerError",
+  "message": "An unexpected error occurred",
+  "details": null
+}
+```
+
+---
+
+### Model Lifecycle
+
+- The model is loaded **once per API process** on startup (via FastAPI lifespan handler).
+- Uses the existing model-loading and caching architecture (`load_model_with_metadata`).
+- Prefers `enrollment_model_phase1.pkl` (Phase 1 model); falls back to `enrollment_model.pkl` (legacy).
+- Handles missing or corrupted model artifacts gracefully (returns 503 on health/model-info, 503 on predict).
+- Uses existing model metadata (`ModelMetadata` from `edup.models.metadata`).
+
+---
+
+### Testing
+
+Run the API test suite:
+
+```bash
+pytest tests/test_api.py -v
+```
+
+Run all tests (381 total):
+
+```bash
+pytest tests/ -v
+```
+
+### Limitations
+
+- The enrollment model does not beat a mean baseline on this dataset (see Model Performance Summary).
+- Predictions are based on the legacy model artifact unless the Phase 1 model is trained and persisted.
+- The API is for research/prototype use; not production-hardened (no auth, rate limiting, HTTPS termination).
+- Feature parity with Streamlit predictions is maintained through shared `edup.features` module.
 
 ---
 
