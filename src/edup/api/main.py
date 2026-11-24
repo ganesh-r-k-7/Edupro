@@ -11,11 +11,13 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
+import joblib
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
+from pydantic.functional_validators import BeforeValidator
 
 from edup.config import (
     COURSE_CATEGORIES,
@@ -40,6 +42,7 @@ from edup.features import (
     validate_course_inputs,
 )
 from edup.logging import configure_logging, get_logger
+from edup.models import get_registry
 from edup.models.metadata import ModelMetadata, load_model_with_metadata
 
 # Configure logging
@@ -53,24 +56,50 @@ _model_load_error: str | None = None
 
 
 def _load_model_and_metadata() -> tuple[Any | None, ModelMetadata | None, str | None]:
-    """Load the enrollment model and its metadata once per process."""
+    """Load the active enrollment model from the registry once per process."""
     global _model, _model_metadata, _model_load_error  # noqa: PLW0603
 
     if _model is not None or _model_load_error is not None:
         return _model, _model_metadata, _model_load_error
 
     try:
-        # Try to load the Phase 1 model first (preferred), fallback to legacy
-        phase1_path = Path(MODELS_DIR) / "enrollment_model_phase1.pkl"
-        legacy_path = Path(MODELS_DIR) / "enrollment_model.pkl"
+        registry = get_registry()
+        active_path = registry.get_active_model_path()
+        active_entry = registry.get_active_version()
 
-        model_path = phase1_path if phase1_path.exists() else legacy_path
-
-        _model, _model_metadata = load_model_with_metadata(model_path)
-        logger.info("Loaded enrollment model from %s", model_path.name)
-
-        if _model_metadata:
+        if active_path is not None and active_path.exists() and active_entry is not None:
+            model_path = active_path
+            logger.info("Loading active model from registry: %s", model_path.name)
+            # Load model artifact
+            _model = joblib.load(model_path)
+            # Build metadata from registry entry (avoids file naming mismatch)
+            _model_metadata = ModelMetadata(
+                model_name=active_entry.model_name,
+                model_type=active_entry.model_type,
+                artifact_filename=active_entry.artifact_filename,
+                status=active_entry.status,
+                training_date_utc=active_entry.training_date_utc,
+                target_variable=active_entry.target_variable,
+                feature_names=active_entry.feature_names,
+                feature_order=active_entry.feature_order,
+                training_data_fingerprint=active_entry.training_data_fingerprint,
+                training_data_shape=active_entry.training_data_shape,
+                training_data_date_range=active_entry.training_data_date_range,
+                metrics=active_entry.metrics,
+                artifact_sha256=active_entry.artifact_sha256,
+                artifact_size_bytes=active_entry.artifact_size_bytes,
+                notes=active_entry.notes,
+            )
             logger.info("Model: %s (status: %s)", _model_metadata.model_name, _model_metadata.status)
+        else:
+            # Fallback to Phase 1 model only (legacy model is incompatible with current feature engineering)
+            phase1_path = Path(MODELS_DIR) / "enrollment_model_phase1.pkl"
+            if phase1_path.exists():
+                logger.warning("No active model in registry; falling back to %s", phase1_path.name)
+                _model, _model_metadata = load_model_with_metadata(phase1_path)
+            else:
+                _model_load_error = "No compatible enrollment model found. Train a Phase 1 model or register a model in the registry."
+                logger.error(_model_load_error)
 
     except ModelLoadError as exc:
         _model_load_error = str(exc)
@@ -121,6 +150,19 @@ class ModelInfoResponse(BaseModel):
     training_date_utc: str | None = Field(None, description="Training date in UTC")
     metrics: dict[str, Any] = Field(default_factory=dict, description="Model evaluation metrics")
     notes: str | None = Field(None, description="Additional notes")
+    registry_version: str | None = Field(None, description="Registry version identifier")
+    active_since_utc: str | None = Field(None, description="When this version became active")
+
+
+def _reject_bool(v: Any) -> Any:
+    """Reject boolean values before type coercion."""
+    if isinstance(v, bool):
+        raise ValueError("must be a number, not boolean")  # noqa: TRY004, TRY003
+    return v
+
+
+NonBoolFloat = Annotated[float, BeforeValidator(_reject_bool)]
+NonBoolInt = Annotated[int, BeforeValidator(_reject_bool)]
 
 
 class EnrollmentPredictionRequest(BaseModel):
@@ -128,12 +170,12 @@ class EnrollmentPredictionRequest(BaseModel):
 
     course_category: str = Field(..., description="Course category")
     course_level: str = Field(..., description="Course level")
-    course_price: float = Field(..., description="Course price in USD")
-    course_duration: float = Field(..., description="Course duration in hours")
-    teacher_experience: float = Field(..., description="Teacher years of experience")
-    teacher_rating: float = Field(..., description="Teacher rating (1-5)")
+    course_price: NonBoolFloat = Field(..., description="Course price in USD")
+    course_duration: NonBoolFloat = Field(..., description="Course duration in hours")
+    teacher_experience: NonBoolFloat = Field(..., description="Teacher years of experience")
+    teacher_rating: NonBoolFloat = Field(..., description="Teacher rating (1-5)")
     course_type: str = Field(default="Paid", description="Course type (Paid or Free)")
-    course_rating: float = Field(default=4.0, description="Expected course rating (1-5)")
+    course_rating: NonBoolFloat = Field(default=4.0, description="Expected course rating (1-5)")
     payment_method: str = Field(default="Credit Card", description="Payment method (informational only)")
 
     @field_validator("course_category")
@@ -167,8 +209,6 @@ class EnrollmentPredictionRequest(BaseModel):
     @field_validator("course_price")
     @classmethod
     def validate_price(cls, v: float) -> float:
-        if not isinstance(v, (int, float)) or isinstance(v, bool):
-            raise TypeError("course_price must be a number")  # noqa: TRY003
         if v < MIN_PRICE or v > MAX_PRICE:
             raise ValueError(f"course_price must be between ${MIN_PRICE:.0f} and ${MAX_PRICE:.0f}")  # noqa: TRY003
         return float(v)
@@ -176,8 +216,6 @@ class EnrollmentPredictionRequest(BaseModel):
     @field_validator("course_duration")
     @classmethod
     def validate_duration(cls, v: float) -> float:
-        if not isinstance(v, (int, float)) or isinstance(v, bool):
-            raise TypeError("course_duration must be a number")  # noqa: TRY003
         if v < MIN_DURATION or v > MAX_DURATION:
             raise ValueError(f"course_duration must be between {MIN_DURATION:.0f} and {MAX_DURATION:.0f} hours")  # noqa: TRY003
         return float(v)
@@ -185,8 +223,6 @@ class EnrollmentPredictionRequest(BaseModel):
     @field_validator("course_rating", "teacher_rating")
     @classmethod
     def validate_rating(cls, v: float) -> float:
-        if not isinstance(v, (int, float)) or isinstance(v, bool):
-            raise TypeError("rating must be a number")  # noqa: TRY003
         if v < MIN_RATING or v > MAX_RATING:
             raise ValueError(f"rating must be between {MIN_RATING:.1f} and {MAX_RATING:.1f}")  # noqa: TRY003
         return float(v)
@@ -194,8 +230,6 @@ class EnrollmentPredictionRequest(BaseModel):
     @field_validator("teacher_experience")
     @classmethod
     def validate_experience(cls, v: float) -> float:
-        if not isinstance(v, (int, float)) or isinstance(v, bool):
-            raise TypeError("teacher_experience must be a number")  # noqa: TRY003
         if v < MIN_EXPERIENCE or v > MAX_EXPERIENCE:
             raise ValueError(f"teacher_experience must be between {MIN_EXPERIENCE} and {MAX_EXPERIENCE} years")  # noqa: TRY003
         return float(v)
@@ -298,6 +332,12 @@ async def model_info() -> ModelInfoResponse:
             detail="Model not available. Check model artifacts and logs.",
         )
 
+    # Get registry info for active model
+    registry = get_registry()
+    active_entry = registry.get_active_version()
+    registry_version = active_entry.version if active_entry else None
+    active_since = active_entry.promoted_at_utc if active_entry else None
+
     return ModelInfoResponse(
         model_name=metadata.model_name,
         model_type=metadata.model_type,
@@ -308,6 +348,8 @@ async def model_info() -> ModelInfoResponse:
         training_date_utc=metadata.training_date_utc,
         metrics=metadata.metrics,
         notes=metadata.notes,
+        registry_version=registry_version,
+        active_since_utc=active_since,
     )
 
 
@@ -371,6 +413,93 @@ async def predict_enrollment_endpoint(request: EnrollmentPredictionRequest) -> E
     # Let unexpected exceptions propagate to the general exception handler
 
 
+# ─── Registry Endpoints ────────────────────────────────────────────────────────
+
+
+class RegistryListResponse(BaseModel):
+    """Response for listing registry versions."""
+
+    versions: list[dict[str, Any]]
+
+
+class RegistryVersionResponse(BaseModel):
+    """Response for a single registry version."""
+
+    version: str
+    model_name: str
+    model_type: str
+    artifact_filename: str
+    status: str
+    training_date_utc: str
+    target_variable: str
+    feature_names: list[str]
+    metrics: dict[str, Any]
+    artifact_sha256: str
+    promoted_at_utc: str | None
+    promoted_by: str | None
+
+
+@app.get("/model-registry", response_model=RegistryListResponse, tags=["Model Registry"])
+async def list_registry_versions() -> RegistryListResponse:
+    """
+    List all registered model versions.
+
+    Returns version metadata for all registered models, newest first.
+    Does not expose filesystem paths.
+    """
+    registry = get_registry()
+    versions = registry.list_versions()
+
+    return RegistryListResponse(
+        versions=[
+            {
+                "version": v.version,
+                "model_name": v.model_name,
+                "model_type": v.model_type,
+                "artifact_filename": v.artifact_filename,
+                "status": v.status,
+                "training_date_utc": v.training_date_utc,
+                "target_variable": v.target_variable,
+                "feature_names": v.feature_names,
+                "metrics": v.metrics,
+                "artifact_sha256": v.artifact_sha256,
+                "promoted_at_utc": v.promoted_at_utc,
+                "promoted_by": v.promoted_by,
+            }
+            for v in versions
+        ]
+    )
+
+
+@app.get("/model-registry/{version}", response_model=RegistryVersionResponse, tags=["Model Registry"])
+async def get_registry_version(version: str) -> RegistryVersionResponse:
+    """
+    Get details for a specific registered model version.
+
+    Does not expose filesystem paths.
+    """
+    registry = get_registry()
+    entry = registry.get_version(version)
+
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Version {version} not found")
+
+    return RegistryVersionResponse(
+        version=entry.version,
+        model_name=entry.model_name,
+        model_type=entry.model_type,
+        artifact_filename=entry.artifact_filename,
+        status=entry.status,
+        training_date_utc=entry.training_date_utc,
+        target_variable=entry.target_variable,
+        feature_names=entry.feature_names,
+        metrics=entry.metrics,
+        artifact_sha256=entry.artifact_sha256,
+        promoted_at_utc=entry.promoted_at_utc,
+        promoted_by=entry.promoted_by,
+    )
+
+
 # ─── Root Endpoint ─────────────────────────────────────────────────────────────
 
 
@@ -384,5 +513,5 @@ async def root() -> dict[str, str]:
         "health": "/health",
         "model_info": "/model-info",
         "predict": "/predict/enrollment",
+        "model_registry": "/model-registry",
     }
-

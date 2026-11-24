@@ -33,6 +33,57 @@ def reset_model_state():
     api_main._model_load_error = None
 
 
+@pytest.fixture
+def mock_model():
+    """Create a mock model compatible with the feature engineering pipeline."""
+    from sklearn.dummy import DummyRegressor
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler, OneHotEncoder
+    from sklearn.compose import ColumnTransformer
+    import numpy as np
+    import pandas as pd
+    from edup.config import FEATURE_COLUMNS, NUMERIC_FEATURES, CATEGORICAL_FEATURES
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", StandardScaler(), NUMERIC_FEATURES),
+            (
+                "cat",
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                CATEGORICAL_FEATURES,
+            ),
+        ]
+    )
+    pipe = Pipeline([("preprocessor", preprocessor), ("model", DummyRegressor(strategy="constant", constant=10.0))])
+    X = np.random.rand(10, len(FEATURE_COLUMNS))
+    X_df = pd.DataFrame(X, columns=FEATURE_COLUMNS)
+    y = np.full(10, 10.0)
+    pipe.fit(X_df, y)
+    return pipe
+
+
+@pytest.fixture
+def client_with_model(mock_model):
+    """Create a test client with a mocked compatible model loaded."""
+    import edup.api.main as api_main
+    from unittest.mock import MagicMock
+
+    api_main._model = mock_model
+    api_main._model_metadata = MagicMock()
+    api_main._model_metadata.model_name = "test_model"
+    api_main._model_metadata.artifact_filename = "test_model.pkl"
+    api_main._model_load_error = None
+
+    from fastapi.testclient import TestClient
+    from edup.api.main import app
+    client = TestClient(app, raise_server_exceptions=False)
+    yield client
+
+    api_main._model = None
+    api_main._model_metadata = None
+    api_main._model_load_error = None
+
+
 class TestHealthEndpoint:
     """Tests for GET /health endpoint."""
 
@@ -482,9 +533,9 @@ class TestPredictEndpoint:
         )
         assert response.status_code == 422
 
-    def test_predict_rejects_boolean_inputs(self, client: TestClient):
-        """Predict returns 400 for boolean inputs (should be numbers)."""
-        response = client.post(
+    def test_predict_rejects_boolean_inputs(self, client_with_model: TestClient):
+        """Predict returns 422 for boolean inputs (should be numbers)."""
+        response = client_with_model.post(
             "/predict/enrollment",
             json={
                 "course_category": "Programming",
@@ -495,7 +546,7 @@ class TestPredictEndpoint:
                 "teacher_rating": 4.0,
             },
         )
-        assert response.status_code == 400
+        assert response.status_code == 422
 
     def test_predict_rejects_nan_inputs(self, client: TestClient):
         """Predict rejects NaN inputs via validation (tested via direct validation call)."""
@@ -751,14 +802,14 @@ class TestPredictEndpoint:
 class TestModelLoadedOnce:
     """Tests that model is loaded only once per process."""
 
-    def test_model_loaded_once_across_requests(self, client: TestClient):
+    def test_model_loaded_once_across_requests(self, client_with_model: TestClient):
         """Model loading happens only once across multiple requests."""
         import edup.api.main as api_main
 
         # Make multiple requests
-        client.get("/health")
-        client.get("/health")
-        client.post(
+        client_with_model.get("/health")
+        client_with_model.get("/health")
+        client_with_model.post(
             "/predict/enrollment",
             json={
                 "course_category": "Programming",
@@ -781,7 +832,7 @@ class TestModelLoadedOnce:
 class TestFeatureParityWithStreamlit:
     """Tests that API predictions match Streamlit prediction logic."""
 
-    def test_predict_uses_same_feature_engineering(self, client: TestClient):
+    def test_predict_uses_same_feature_engineering(self, client_with_model: TestClient):
         """API uses the same feature engineering as Streamlit."""
         from edup.features import build_feature_frame, validate_course_inputs
 
@@ -800,7 +851,7 @@ class TestFeatureParityWithStreamlit:
         X_direct = build_feature_frame(**values)
 
         # Make API request
-        response = client.post(
+        response = client_with_model.post(
             "/predict/enrollment",
             json={
                 "course_category": "Programming",
@@ -821,9 +872,9 @@ class TestFeatureParityWithStreamlit:
             from edup.config import FEATURE_COLUMNS
             assert data["features_used"] == FEATURE_COLUMNS
 
-    def test_predict_free_course_normalizes_price(self, client: TestClient):
+    def test_predict_free_course_normalizes_price(self, client_with_model: TestClient):
         """API normalizes price to 0 for Free courses, like Streamlit."""
-        response = client.post(
+        response = client_with_model.post(
             "/predict/enrollment",
             json={
                 "course_category": "Programming",
@@ -840,9 +891,9 @@ class TestFeatureParityWithStreamlit:
             data = response.json()
             assert data["predicted_enrollment"] >= 0
 
-    def test_predict_rejects_paid_zero_price(self, client: TestClient):
+    def test_predict_rejects_paid_zero_price(self, client_with_model: TestClient):
         """API rejects zero price for Paid courses, like Streamlit."""
-        response = client.post(
+        response = client_with_model.post(
             "/predict/enrollment",
             json={
                 "course_category": "Programming",

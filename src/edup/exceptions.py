@@ -33,3 +33,9 @@ class DashboardError(Exception):
     """Raised when dashboard initialization fails."""
 
     pass
+
+
+class ModelRegistryError(Exception):
+    """Raised when a model registry operation fails."""
+
+    pass

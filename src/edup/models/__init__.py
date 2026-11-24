@@ -20,6 +20,22 @@ from .models import (
     prepare_enrollment_target,
     train_enrollment_model,
 )
+from .registry import (
+    ModelRegistry,
+    RegistryEntry,
+    RegistryIndex,
+    PromotionCriteria,
+    RetrainingConfig,
+    get_registry,
+    reset_registry,
+)
+from .retrain import (
+    run_manual_retrain,
+    run_scheduled_retrain,
+    daemon_mode,
+    promote_version,
+    rollback_version,
+)
 
 __all__ = [
     "train_enrollment_model",
@@ -39,4 +55,16 @@ __all__ = [
     "validate_model_metadata",
     "generate_metadata_for_existing_artifacts",
     "write_all_metadata",
+    "ModelRegistry",
+    "RegistryEntry",
+    "RegistryIndex",
+    "PromotionCriteria",
+    "RetrainingConfig",
+    "get_registry",
+    "reset_registry",
+    "run_manual_retrain",
+    "run_scheduled_retrain",
+    "daemon_mode",
+    "promote_version",
+    "rollback_version",
 ]
