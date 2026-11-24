@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -42,6 +43,7 @@ class TestRetrainCLI:
         np.random.seed(42)
         n = 1000
         return pd.DataFrame({
+            "TransactionID": [f"T{i}" for i in range(n)],
             "TransactionDate": pd.date_range("2025-01-01", periods=n),
             "CourseID": [f"C{i % 60}" for i in range(n)],
             "CoursePrice": np.random.uniform(50, 200, n),
@@ -56,40 +58,46 @@ class TestRetrainCLI:
             "PaymentMethod": np.random.choice(["Credit Card", "PayPal", "Bank Transfer"], n),
         })
 
-    @patch("edup.models.retrain.get_registry")
-    @patch("edup.models.retrain.load_processed_data")
-    @patch("edup.models.retrain.train_enrollment_model")
-    @patch("edup.models.retrain.joblib.dump")
-    def test_run_manual_retrain_success(
-        self, mock_dump, mock_train, mock_load_data, mock_get_registry, temp_registry, dummy_training_data
-    ):
-        """Test manual retrain with successful training."""
-        mock_get_registry.return_value = temp_registry
-        mock_load_data.return_value = dummy_training_data
-        mock_train.return_value = {
-            "use_model": True,
-            "selected_model": "RandomForest",
-            "candidate_cv_rmse": {"RandomForest": 5.0},
-            "selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8},
-            "baseline": {"test": {"RMSE": 10.0}},
-            "n_courses": 60,
-            "features": FEATURE_COLUMNS,
-        }
-
-        # Create a real model for dump
+    def _create_dummy_model_artifact(self, models_dir: Path):
+        """Create a dummy model artifact in the given directory."""
         import joblib
         from sklearn.linear_model import LinearRegression
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
 
-        def dump_side_effect(model, path):
-            pipe = Pipeline([("scaler", StandardScaler()), ("model", LinearRegression())])
-            X = np.random.rand(10, len(FEATURE_COLUMNS))
-            y = np.random.rand(10)
-            pipe.fit(X, y)
-            joblib.dump(pipe, path)
+        pipe = Pipeline([("scaler", StandardScaler()), ("model", LinearRegression())])
+        X = np.random.rand(10, len(FEATURE_COLUMNS))
+        y = np.random.rand(10)
+        pipe.fit(X, y)
 
-        mock_dump.side_effect = dump_side_effect
+        model_path = models_dir / "enrollment_model_phase1.pkl"
+        joblib.dump(pipe, model_path)
+        return model_path
+
+    @patch("edup.models.retrain.get_registry")
+    @patch("edup.data.load_processed_data")
+    @patch("edup.models.models.train_enrollment_model")
+    def test_run_manual_retrain_success(
+        self, mock_train, mock_load_data, mock_get_registry, temp_registry, dummy_training_data
+    ):
+        """Test manual retrain with successful training."""
+        mock_get_registry.return_value = temp_registry
+        mock_load_data.return_value = dummy_training_data
+
+        # Mock train_enrollment_model to return success metrics AND create the model file
+        def train_side_effect(df, models_dir):
+            self._create_dummy_model_artifact(Path(models_dir))
+            return {
+                "use_model": True,
+                "selected_model": "RandomForest",
+                "candidate_cv_rmse": {"RandomForest": 5.0},
+                "selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8},
+                "baseline": {"test": {"RMSE": 10.0}},
+                "n_courses": 60,
+                "features": FEATURE_COLUMNS,
+            }
+
+        mock_train.side_effect = train_side_effect
 
         result = run_manual_retrain(auto_promote=False)
 
@@ -98,8 +106,8 @@ class TestRetrainCLI:
         assert result["candidate_version"].startswith("v")
 
     @patch("edup.models.retrain.get_registry")
-    @patch("edup.models.retrain.load_processed_data")
-    @patch("edup.models.retrain.train_enrollment_model")
+    @patch("edup.data.load_processed_data")
+    @patch("edup.models.models.train_enrollment_model")
     def test_run_manual_retrain_no_model(
         self, mock_train, mock_load_data, mock_get_registry, temp_registry, dummy_training_data
     ):
@@ -131,11 +139,10 @@ class TestRetrainCLI:
         assert result["status"] == "disabled"
 
     @patch("edup.models.retrain.get_registry")
-    @patch("edup.models.retrain.load_processed_data")
-    @patch("edup.models.retrain.train_enrollment_model")
-    @patch("edup.models.retrain.joblib.dump")
+    @patch("edup.data.load_processed_data")
+    @patch("edup.models.models.train_enrollment_model")
     def test_run_scheduled_retrain_enabled(
-        self, mock_dump, mock_train, mock_load_data, mock_get_registry, temp_registry, dummy_training_data
+        self, mock_train, mock_load_data, mock_get_registry, temp_registry, dummy_training_data
     ):
         """Test scheduled retrain when enabled."""
         mock_get_registry.return_value = temp_registry
@@ -145,29 +152,20 @@ class TestRetrainCLI:
         temp_registry.save_retraining_config(config)
 
         mock_load_data.return_value = dummy_training_data
-        mock_train.return_value = {
-            "use_model": True,
-            "selected_model": "RandomForest",
-            "candidate_cv_rmse": {"RandomForest": 5.0},
-            "selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8},
-            "baseline": {"test": {"RMSE": 10.0}},
-            "n_courses": 60,
-            "features": FEATURE_COLUMNS,
-        }
 
-        import joblib
-        from sklearn.linear_model import LinearRegression
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
+        def train_side_effect(df, models_dir):
+            self._create_dummy_model_artifact(Path(models_dir))
+            return {
+                "use_model": True,
+                "selected_model": "RandomForest",
+                "candidate_cv_rmse": {"RandomForest": 5.0},
+                "selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8},
+                "baseline": {"test": {"RMSE": 10.0}},
+                "n_courses": 60,
+                "features": FEATURE_COLUMNS,
+            }
 
-        def dump_side_effect(model, path):
-            pipe = Pipeline([("scaler", StandardScaler()), ("model", LinearRegression())])
-            X = np.random.rand(10, len(FEATURE_COLUMNS))
-            y = np.random.rand(10)
-            pipe.fit(X, y)
-            joblib.dump(pipe, path)
-
-        mock_dump.side_effect = dump_side_effect
+        mock_train.side_effect = train_side_effect
 
         result = run_scheduled_retrain()
 

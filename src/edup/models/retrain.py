@@ -76,7 +76,9 @@ def run_scheduled_retrain() -> dict[str, Any]:
         return {"status": "disabled", "message": "Scheduled retraining is disabled"}
 
     # Check for overlapping jobs (simple file-based lock)
-    lock_file = config.log_dir / ".retraining.lock"
+    log_dir = config.resolve_log_dir(registry.registry_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    lock_file = log_dir / ".retraining.lock"
     if lock_file.exists():
         # Check if lock is stale (older than 6 hours)
         try:
