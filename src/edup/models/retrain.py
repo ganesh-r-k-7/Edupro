@@ -185,7 +185,13 @@ def show_registry_status() -> None:
         print(f"    Trained: {v.training_date_utc}")
         if v.metrics.get("selected_test"):
             test = v.metrics["selected_test"]
-            print(f"    Test RMSE: {test.get('RMSE', 'N/A'):.3f}, MAE: {test.get('MAE', 'N/A'):.3f}, R2: {test.get('R2', 'N/A'):.3f}")
+            rmse = test.get('RMSE')
+            mae = test.get('MAE')
+            r2 = test.get('R2')
+            rmse_str = f"{rmse:.3f}" if isinstance(rmse, (int, float)) else "N/A"
+            mae_str = f"{mae:.3f}" if isinstance(mae, (int, float)) else "N/A"
+            r2_str = f"{r2:.3f}" if isinstance(r2, (int, float)) else "N/A"
+            print(f"    Test RMSE: {rmse_str}, MAE: {mae_str}, R2: {r2_str}")
 
     print("\n=== Retraining Configuration ===")
     print(f"Enabled: {config.enabled}")
