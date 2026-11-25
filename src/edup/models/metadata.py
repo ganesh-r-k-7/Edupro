@@ -22,7 +22,7 @@ import pandas as pd
 
 from edup.config import MODELS_DIR
 
-ModelStatus = Literal["active", "legacy", "retired", "cached"]
+ModelStatus = Literal["active", "legacy", "retired", "cached", "candidate", "approved", "rejected", "archived"]
 
 
 @dataclass
@@ -170,7 +170,7 @@ def validate_model_metadata(metadata: ModelMetadata) -> list[str]:
         issues.append("model_type is required")
     if not metadata.artifact_filename:
         issues.append("artifact_filename is required")
-    if metadata.status not in ("active", "legacy", "retired", "cached"):
+    if metadata.status not in ("active", "legacy", "retired", "cached", "candidate", "approved", "rejected", "archived"):
         issues.append(f"invalid status: {metadata.status}")
 
     if metadata.feature_names and metadata.feature_order:

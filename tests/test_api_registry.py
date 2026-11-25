@@ -4,19 +4,15 @@ Tests for API endpoints with model registry integration.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
-from pathlib import Path
-from unittest.mock import patch
 from fastapi.testclient import TestClient
 
-from edup.models import reset_registry, get_registry
-from edup.models.registry import ModelRegistry
 from edup.api.main import app
-from edup.config import FEATURE_COLUMNS, NUMERIC_FEATURES, CATEGORICAL_FEATURES
+from edup.config import CATEGORICAL_FEATURES, FEATURE_COLUMNS, NUMERIC_FEATURES
+from edup.models import reset_registry
+from edup.models.registry import ModelRegistry
 
 
 @pytest.fixture(autouse=True)
@@ -60,12 +56,12 @@ def patched_registry(temp_registry):
 
 def _create_compatible_pipeline():
     """Create a pipeline compatible with the feature engineering output."""
-    from sklearn.dummy import DummyRegressor
-    from sklearn.pipeline import Pipeline
-    from sklearn.preprocessing import StandardScaler, OneHotEncoder
-    from sklearn.compose import ColumnTransformer
     import numpy as np
     import pandas as pd
+    from sklearn.compose import ColumnTransformer
+    from sklearn.dummy import DummyRegressor
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
     preprocessor = ColumnTransformer(
         transformers=[
@@ -112,16 +108,18 @@ class TestAPIWithRegistry:
             model_name="test_model",
             model_type="LinearRegression",
             artifact_path=artifact_path,
-            status="active",
+            status="candidate",
             training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="EnrollmentCount",
             feature_names=FEATURE_COLUMNS,
-            metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}},
+            metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
         )
+        patched_registry.approve_candidate(version)
         patched_registry.promote(version)
 
         # Create client after model is registered and promoted
         from fastapi.testclient import TestClient
+
         from edup.api.main import app
         client = TestClient(app)
 
@@ -147,16 +145,18 @@ class TestAPIWithRegistry:
             model_name="test_model",
             model_type="LinearRegression",
             artifact_path=artifact_path,
-            status="active",
+            status="candidate",
             training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="EnrollmentCount",
             feature_names=FEATURE_COLUMNS,
-            metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}},
+            metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
         )
+        patched_registry.approve_candidate(version)
         patched_registry.promote(version)
 
         # Create client after model is registered and promoted
         from fastapi.testclient import TestClient
+
         from edup.api.main import app
         client = TestClient(app)
 
@@ -209,6 +209,7 @@ class TestRegistryEndpoints:
 
         # Create client after models are registered
         from fastapi.testclient import TestClient
+
         from edup.api.main import app
         client = TestClient(app)
 
@@ -239,6 +240,7 @@ class TestRegistryEndpoints:
 
         # Create client after model is registered
         from fastapi.testclient import TestClient
+
         from edup.api.main import app
         client = TestClient(app)
 
@@ -258,6 +260,7 @@ class TestRegistryEndpoints:
         """Test getting non-existent registry version returns 404."""
         # Create client
         from fastapi.testclient import TestClient
+
         from edup.api.main import app
         client = TestClient(app)
 
@@ -279,14 +282,16 @@ class TestModelLoadingPriority:
 
         version = patched_registry.register_model(
             model_name="registry_model", model_type="LR", artifact_path=artifact_path,
-            status="active", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
-            metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}},
+            metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
         )
+        patched_registry.approve_candidate(version)
         patched_registry.promote(version)
 
         # Create client after model is registered and promoted
         from fastapi.testclient import TestClient
+
         from edup.api.main import app
         client = TestClient(app)
 

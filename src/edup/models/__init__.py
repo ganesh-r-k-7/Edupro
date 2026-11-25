@@ -22,19 +22,19 @@ from .models import (
 )
 from .registry import (
     ModelRegistry,
+    PromotionCriteria,
     RegistryEntry,
     RegistryIndex,
-    PromotionCriteria,
     RetrainingConfig,
     get_registry,
     reset_registry,
 )
 from .retrain import (
-    run_manual_retrain,
-    run_scheduled_retrain,
     daemon_mode,
     promote_version,
     rollback_version,
+    run_manual_retrain,
+    run_scheduled_retrain,
 )
 
 __all__ = [

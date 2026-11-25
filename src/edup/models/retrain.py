@@ -14,12 +14,11 @@ import os
 import signal
 import sys
 import time
-from pathlib import Path
 from typing import Any
 
 from edup.logging import configure_logging, logger_models
-from edup.models import get_registry, reset_registry
-from edup.models.registry import PromotionCriteria, RetrainingConfig
+from edup.models import get_registry
+from edup.models.registry import PromotionCriteria
 
 # Global flag for graceful shutdown
 _shutdown_requested = False
@@ -196,7 +195,7 @@ def show_registry_status() -> None:
 
 
 def promote_version(version: str, min_r2: float = -1.0, max_rmse: float = float("inf"), max_mae: float = float("inf")) -> bool:
-    """Promote a specific version to active."""
+    """Promote a specific version to active (requires approved status)."""
     configure_logging()
     registry = get_registry()
 
@@ -213,6 +212,55 @@ def promote_version(version: str, min_r2: float = -1.0, max_rmse: float = float(
         return True
     except Exception as exc:
         logger_models.error("Promotion failed: %s", exc)
+        return False
+
+
+def approve_version(version: str, min_r2: float = -1.0, max_rmse: float = float("inf"), max_mae: float = float("inf")) -> bool:
+    """Approve a candidate version for promotion."""
+    configure_logging()
+    registry = get_registry()
+
+    criteria = PromotionCriteria(
+        min_r2=min_r2,
+        max_rmse=max_rmse,
+        max_mae=max_mae,
+        must_beat_baseline=True,
+    )
+
+    try:
+        registry.approve_candidate(version, criteria, approved_by="cli")
+        logger_models.info("Successfully approved version %s", version)
+        return True
+    except Exception as exc:
+        logger_models.error("Approval failed: %s", exc)
+        return False
+
+
+def reject_version(version: str, reason: str = "") -> bool:
+    """Reject a candidate version."""
+    configure_logging()
+    registry = get_registry()
+
+    try:
+        registry.reject_candidate(version, reason=reason, rejected_by="cli")
+        logger_models.info("Successfully rejected version %s", version)
+        return True
+    except Exception as exc:
+        logger_models.error("Rejection failed: %s", exc)
+        return False
+
+
+def archive_version(version: str) -> bool:
+    """Archive a model version."""
+    configure_logging()
+    registry = get_registry()
+
+    try:
+        registry.archive_version(version, archived_by="cli")
+        logger_models.info("Successfully archived version %s", version)
+        return True
+    except Exception as exc:
+        logger_models.error("Archival failed: %s", exc)
         return False
 
 
@@ -272,6 +320,22 @@ def main() -> int:
     config_parser.add_argument("--min-r2", type=float)
     config_parser.add_argument("--max-rmse", type=float)
     config_parser.add_argument("--max-mae", type=float)
+
+    # Approve
+    approve_parser = subparsers.add_parser("approve", help="Approve a candidate version for promotion")
+    approve_parser.add_argument("version", help="Version to approve")
+    approve_parser.add_argument("--min-r2", type=float, default=-1.0)
+    approve_parser.add_argument("--max-rmse", type=float, default=float("inf"))
+    approve_parser.add_argument("--max-mae", type=float, default=float("inf"))
+
+    # Reject
+    reject_parser = subparsers.add_parser("reject", help="Reject a candidate version")
+    reject_parser.add_argument("version", help="Version to reject")
+    reject_parser.add_argument("--reason", default="", help="Reason for rejection")
+
+    # Archive
+    archive_parser = subparsers.add_parser("archive", help="Archive a model version")
+    archive_parser.add_argument("version", help="Version to archive")
 
     args = parser.parse_args()
 
@@ -345,6 +409,23 @@ def main() -> int:
         print(f"  Schedule: {config.schedule_cron}")
         print(f"  Acceptance: {config.acceptance_criteria.to_dict()}")
         return 0
+
+    elif args.command == "approve":
+        success = approve_version(
+            args.version,
+            min_r2=args.min_r2,
+            max_rmse=args.max_rmse,
+            max_mae=args.max_mae,
+        )
+        return 0 if success else 1
+
+    elif args.command == "reject":
+        success = reject_version(args.version, reason=args.reason)
+        return 0 if success else 1
+
+    elif args.command == "archive":
+        success = archive_version(args.version)
+        return 0 if success else 1
 
     return 1
 

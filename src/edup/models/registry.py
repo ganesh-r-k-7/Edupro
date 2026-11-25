@@ -15,28 +15,23 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import joblib
 import pandas as pd
 
 from edup.config import FEATURE_COLUMNS, MODELS_DIR
-from edup.exceptions import ModelLoadError, ModelRegistryError
+from edup.exceptions import ModelRegistryError
 from edup.logging import logger_models
 from edup.models.metadata import (
     ModelMetadata,
     ModelStatus,
     compute_data_fingerprint,
     compute_file_sha256,
-    get_library_versions,
     validate_model_metadata,
 )
 from edup.models.models import (
-    evaluate_model,
-    get_all_models,
-    load_enrollment_model,
     prepare_enrollment_target,
-    train_enrollment_model,
 )
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -487,18 +482,17 @@ class ModelRegistry:
         metrics = entry.metrics
         if not metrics:
             issues.append("No evaluation metrics found")
+        # Check required metrics
+        elif "selected_test" not in metrics:
+            issues.append("Missing selected_test metrics")
         else:
-            # Check required metrics
-            if "selected_test" not in metrics:
-                issues.append("Missing selected_test metrics")
-            else:
-                test_metrics = metrics["selected_test"]
-                if "RMSE" not in test_metrics:
-                    issues.append("Missing RMSE in test metrics")
-                if "MAE" not in test_metrics:
-                    issues.append("Missing MAE in test metrics")
-                if "R2" not in test_metrics:
-                    issues.append("Missing R2 in test metrics")
+            test_metrics = metrics["selected_test"]
+            if "RMSE" not in test_metrics:
+                issues.append("Missing RMSE in test metrics")
+            if "MAE" not in test_metrics:
+                issues.append("Missing MAE in test metrics")
+            if "R2" not in test_metrics:
+                issues.append("Missing R2 in test metrics")
 
         # 5. Model output validation (sanity check)
         model_output_warnings = []
@@ -544,15 +538,110 @@ class ModelRegistry:
         all_issues = issues + model_output_warnings
         return len(issues) == 0, all_issues
 
-    def promote(self, version: str, criteria: PromotionCriteria | None = None, promoted_by: str = "manual") -> bool:
-        """Promote a validated model version to active production."""
+    def approve_candidate(self, version: str, criteria: PromotionCriteria | None = None, approved_by: str = "manual") -> bool:
+        """Approve a validated candidate model for promotion.
+        
+        This moves the candidate from 'candidate' to 'approved' status.
+        Does not activate the model - use promote() for that.
+        """
         with RegistryLock(_get_lock_path(self.registry_dir)):
             index = self._get_index()
 
             if version not in index.entries:
                 raise ModelRegistryError(f"Version {version} not found in registry")
 
+            entry = index.entries[version]
+
+            if entry.status != "candidate":
+                raise ModelRegistryError(f"Version {version} is not a candidate (status: {entry.status})")
+
             # Validate candidate
+            valid, issues = self.validate_candidate(version, criteria)
+            if not valid:
+                raise ModelRegistryError(f"Candidate validation failed: {issues}")
+
+            # Update entry status to approved
+            entry.status = "approved"
+            entry.promoted_at_utc = datetime.now(UTC).isoformat()
+            entry.promoted_by = approved_by
+
+            self._save_index(index)
+            self._invalidate_cache()
+
+            logger_models.info("Approved model version %s (by %s)", version, approved_by)
+            return True
+
+    def reject_candidate(self, version: str, reason: str = "", rejected_by: str = "manual") -> bool:
+        """Reject a candidate model.
+        
+        This moves the candidate from 'candidate' to 'rejected' status.
+        """
+        with RegistryLock(_get_lock_path(self.registry_dir)):
+            index = self._get_index()
+
+            if version not in index.entries:
+                raise ModelRegistryError(f"Version {version} not found in registry")
+
+            entry = index.entries[version]
+
+            if entry.status not in ("candidate", "approved"):
+                raise ModelRegistryError(f"Version {version} is not a candidate or approved (status: {entry.status})")
+
+            entry.status = "rejected"
+            entry.notes = f"{entry.notes}\nRejected: {reason}".strip()
+            entry.promoted_at_utc = datetime.now(UTC).isoformat()
+            entry.promoted_by = rejected_by
+
+            self._save_index(index)
+            self._invalidate_cache()
+
+            logger_models.info("Rejected model version %s (by %s): %s", version, rejected_by, reason)
+            return True
+
+    def archive_version(self, version: str, archived_by: str = "manual") -> bool:
+        """Archive a model version.
+        
+        This moves the version to 'archived' status.
+        Only non-active versions can be archived.
+        """
+        with RegistryLock(_get_lock_path(self.registry_dir)):
+            index = self._get_index()
+
+            if version not in index.entries:
+                raise ModelRegistryError(f"Version {version} not found in registry")
+
+            entry = index.entries[version]
+
+            if entry.status == "active":
+                raise ModelRegistryError("Cannot archive active model version")
+
+            entry.status = "archived"
+            entry.promoted_at_utc = datetime.now(UTC).isoformat()
+            entry.promoted_by = archived_by
+
+            self._save_index(index)
+            self._invalidate_cache()
+
+            logger_models.info("Archived model version %s (by %s)", version, archived_by)
+            return True
+
+    def promote(self, version: str, criteria: PromotionCriteria | None = None, promoted_by: str = "manual") -> bool:
+        """Promote an approved model version to active production.
+        
+        Requires the version to be in 'approved' status.
+        """
+        with RegistryLock(_get_lock_path(self.registry_dir)):
+            index = self._get_index()
+
+            if version not in index.entries:
+                raise ModelRegistryError(f"Version {version} not found in registry")
+
+            entry = index.entries[version]
+
+            if entry.status != "approved":
+                raise ModelRegistryError(f"Version {version} is not approved (status: {entry.status}). Must approve before promoting.")
+
+            # Validate candidate again to ensure it still meets criteria
             valid, issues = self.validate_candidate(version, criteria)
             if not valid:
                 raise ModelRegistryError(f"Candidate validation failed: {issues}")
@@ -591,14 +680,14 @@ class ModelRegistry:
             index = self._get_index()
 
             if target_version is None:
-                # Rollback to previous active (legacy)
+                # Rollback to previous active (legacy or other non-active valid version)
                 candidates = [
                     (v, e) for v, e in index.entries.items()
-                    if e.status == "legacy" and v != index.active_version
+                    if e.status in ("legacy", "approved", "candidate", "archived") and v != index.active_version
                 ]
                 if not candidates:
                     raise ModelRegistryError("No previous version available for rollback")
-                # Pick most recent legacy
+                # Pick most recent
                 target_version = max(candidates, key=lambda x: x[0])[0]
 
             if target_version not in index.entries:
@@ -670,12 +759,12 @@ class ModelRegistry:
 
             # 4. Train candidate model using existing training logic
             # We need to capture the trained model and metrics
+            # Use a temporary directory for training output
+            import tempfile
+
             from edup.models.models import (
                 train_enrollment_model,
             )
-
-            # Use a temporary directory for training output
-            import tempfile
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp_models_dir = Path(tmpdir)
                 metrics = train_enrollment_model(df, models_dir=tmp_models_dir)
@@ -695,7 +784,7 @@ class ModelRegistry:
                     model_name="enrollment_model_candidate",
                     model_type=metrics.get("selected_model", "Unknown"),
                     artifact_path=candidate_path,
-                    status="cached",
+                    status="candidate",
                     training_date_utc=training_date,
                     target_variable="EnrollmentCount (course-level)",
                     feature_names=FEATURE_COLUMNS,
@@ -716,8 +805,9 @@ class ModelRegistry:
                     logger_models.warning("Retraining candidate validation failed: %s", issues)
                     return results
 
-                # 7. Promote if requested and valid
+                # 7. Approve and promote if requested and valid
                 if auto_promote:
+                    self.approve_candidate(candidate_version, acceptance_criteria, approved_by="auto_retraining")
                     self.promote(candidate_version, acceptance_criteria, promoted_by="auto_retraining")
                     results["promoted"] = True
                     results["status"] = "promoted"

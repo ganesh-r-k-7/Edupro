@@ -4,28 +4,25 @@ Tests for the retraining CLI (edup-retrain).
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
 
-from edup.models import reset_registry, get_registry
-from edup.models.registry import ModelRegistry, PromotionCriteria
+from edup.config import FEATURE_COLUMNS
+from edup.models import reset_registry
+from edup.models.registry import ModelRegistry
 from edup.models.retrain import (
-    run_manual_retrain,
-    run_scheduled_retrain,
     promote_version,
     rollback_version,
-    show_registry_status,
+    run_manual_retrain,
+    run_scheduled_retrain,
 )
-from edup.config import FEATURE_COLUMNS, MODELS_DIR
 
 
 class TestRetrainCLI:
@@ -175,10 +172,10 @@ class TestRetrainCLI:
     def test_promote_version(self, temp_registry):
         """Test promoting a version via CLI function."""
         import joblib
+        import numpy as np
         from sklearn.linear_model import LinearRegression
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
-        import numpy as np
 
         pipe = Pipeline([("scaler", StandardScaler()), ("model", LinearRegression())])
         X = np.random.rand(10, len(FEATURE_COLUMNS))
@@ -190,10 +187,11 @@ class TestRetrainCLI:
 
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=artifact_path,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
         )
+        temp_registry.approve_candidate(version)
 
         with patch("edup.models.retrain.get_registry", return_value=temp_registry):
             success = promote_version(version)
@@ -204,10 +202,10 @@ class TestRetrainCLI:
     def test_promote_version_invalid_fails(self, temp_registry):
         """Test promoting invalid version fails."""
         import joblib
+        import numpy as np
         from sklearn.linear_model import LinearRegression
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
-        import numpy as np
 
         pipe = Pipeline([("scaler", StandardScaler()), ("model", LinearRegression())])
         X = np.random.rand(10, len(FEATURE_COLUMNS))
@@ -219,10 +217,13 @@ class TestRetrainCLI:
 
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=artifact_path,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 15.0, "MAE": 12.0, "R2": 0.1}, "baseline": {"test": {"RMSE": 10.0}}},
         )
+        # Don't approve - the candidate is invalid and approval will fail
+        # The promote_version function calls promote which requires approved status
+        # Since we don't approve, promote will fail with "not approved" error
 
         with patch("edup.models.retrain.get_registry", return_value=temp_registry):
             success = promote_version(version)
@@ -232,10 +233,10 @@ class TestRetrainCLI:
     def test_rollback_version(self, temp_registry):
         """Test rolling back via CLI function."""
         import joblib
+        import numpy as np
         from sklearn.linear_model import LinearRegression
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
-        import numpy as np
 
         pipe = Pipeline([("scaler", StandardScaler()), ("model", LinearRegression())])
         X = np.random.rand(10, len(FEATURE_COLUMNS))
@@ -247,24 +248,26 @@ class TestRetrainCLI:
 
         v1 = temp_registry.register_model(
             model_name="model1", model_type="LR", artifact_path=artifact_path,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
         )
+        temp_registry.approve_candidate(v1)
+        temp_registry.promote(v1)
 
         artifact_path2 = temp_registry.registry_dir / "model2.pkl"
         joblib.dump(pipe, artifact_path2)
 
         v2 = temp_registry.register_model(
             model_name="model2", model_type="RF", artifact_path=artifact_path2,
-            status="cached", training_date_utc="2026-01-02T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-02T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 4.0, "MAE": 3.0, "R2": 0.9}, "baseline": {"test": {"RMSE": 10.0}}},
         )
-
-        temp_registry.promote(v1)
+        temp_registry.approve_candidate(v2)
         temp_registry.promote(v2)
 
+        # v1 is now legacy, v2 is active
         with patch("edup.models.retrain.get_registry", return_value=temp_registry):
             success = rollback_version()
 
@@ -274,10 +277,10 @@ class TestRetrainCLI:
     def test_rollback_to_specific_version(self, temp_registry):
         """Test rolling back to specific version via CLI function."""
         import joblib
+        import numpy as np
         from sklearn.linear_model import LinearRegression
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
-        import numpy as np
 
         pipe = Pipeline([("scaler", StandardScaler()), ("model", LinearRegression())])
         X = np.random.rand(10, len(FEATURE_COLUMNS))
@@ -289,35 +292,38 @@ class TestRetrainCLI:
 
         v1 = temp_registry.register_model(
             model_name="model1", model_type="LR", artifact_path=artifact_path,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
         )
+        temp_registry.approve_candidate(v1)
+        temp_registry.promote(v1)
 
         artifact_path2 = temp_registry.registry_dir / "model2.pkl"
         joblib.dump(pipe, artifact_path2)
 
         v2 = temp_registry.register_model(
             model_name="model2", model_type="RF", artifact_path=artifact_path2,
-            status="cached", training_date_utc="2026-01-02T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-02T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 4.0, "MAE": 3.0, "R2": 0.9}, "baseline": {"test": {"RMSE": 10.0}}},
         )
+        temp_registry.approve_candidate(v2)
+        temp_registry.promote(v2)
 
         artifact_path3 = temp_registry.registry_dir / "model3.pkl"
         joblib.dump(pipe, artifact_path3)
 
         v3 = temp_registry.register_model(
             model_name="model3", model_type="XGB", artifact_path=artifact_path3,
-            status="cached", training_date_utc="2026-01-03T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-03T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 3.0, "MAE": 2.0, "R2": 0.95}, "baseline": {"test": {"RMSE": 10.0}}},
         )
-
-        temp_registry.promote(v1)
-        temp_registry.promote(v2)
+        temp_registry.approve_candidate(v3)
         temp_registry.promote(v3)
 
+        # v3 is active, v1 and v2 are legacy. Rollback to v1.
         with patch("edup.models.retrain.get_registry", return_value=temp_registry):
             success = rollback_version(v1)
 
@@ -359,7 +365,6 @@ class TestCLICommands:
         assert result.returncode in (0, 1)  # May fail if no registry but command runs
 
 
-import os
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
