@@ -4,26 +4,23 @@ Tests for model registry, retraining, promotion, and rollback.
 
 from __future__ import annotations
 
-import json
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
 
+from edup.config import FEATURE_COLUMNS, MODELS_DIR
+from edup.models.metadata import compute_file_sha256
 from edup.models.registry import (
     ModelRegistry,
+    PromotionCriteria,
     RegistryEntry,
     RegistryIndex,
-    PromotionCriteria,
     RetrainingConfig,
-    get_registry,
     reset_registry,
 )
-from edup.models.metadata import ModelMetadata, ModelStatus, compute_file_sha256
-from edup.config import FEATURE_COLUMNS, MODELS_DIR
 
 
 class TestRegistryEntry:
@@ -188,10 +185,10 @@ class TestModelRegistry:
     @pytest.fixture
     def dummy_model_artifact(self, tmp_path):
         """Create a dummy model artifact for testing."""
+        import joblib
         from sklearn.linear_model import LinearRegression
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
-        import joblib
 
         # Create a simple pipeline
         pipe = Pipeline([
@@ -346,13 +343,14 @@ class TestModelRegistry:
         """Test promoting a model and retrieving active."""
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
             training_data=dummy_training_data, version="v20260101_120000_000002",
         )
 
-        # Promote
+        # Approve then promote
+        temp_registry.approve_candidate(version)
         temp_registry.promote(version)
 
         active = temp_registry.get_active_version()
@@ -376,38 +374,40 @@ class TestModelRegistry:
         """Test promoting invalid candidate fails validation."""
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 15.0, "MAE": 12.0, "R2": 0.1}, "baseline": {"test": {"RMSE": 10.0}}},
             training_data=dummy_training_data, version="v20260101_120000_000003",
         )
 
-        # Should fail because candidate RMSE > baseline RMSE
+        # Should fail because candidate RMSE > baseline RMSE (approval fails)
         with pytest.raises(Exception, match="does not beat baseline"):
-            temp_registry.promote(version)
+            temp_registry.approve_candidate(version)
 
     def test_rollback_to_previous(self, temp_registry, dummy_model_artifact, dummy_training_data):
         """Test rolling back to previous version."""
         v1 = temp_registry.register_model(
             model_name="model1", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
             training_data=dummy_training_data, version="v20260101_120000_000004",
         )
         v2 = temp_registry.register_model(
             model_name="model2", model_type="RF", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-02T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-02T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 4.0, "MAE": 3.0, "R2": 0.9}, "baseline": {"test": {"RMSE": 10.0}}},
             training_data=dummy_training_data, version="v20260102_120000_000004",
         )
 
-        # Promote v1
+        # Approve and promote v1
+        temp_registry.approve_candidate(v1)
         temp_registry.promote(v1)
         assert temp_registry.get_active_version().version == v1
 
-        # Promote v2
+        # Approve and promote v2
+        temp_registry.approve_candidate(v2)
         temp_registry.promote(v2)
         assert temp_registry.get_active_version().version == v2
         assert temp_registry.get_version(v1).status == "legacy"
@@ -422,28 +422,31 @@ class TestModelRegistry:
         """Test rolling back to a specific version."""
         v1 = temp_registry.register_model(
             model_name="model1", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
             training_data=dummy_training_data, version="v20260101_120000_000005",
         )
         v2 = temp_registry.register_model(
             model_name="model2", model_type="RF", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-02T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-02T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 4.0, "MAE": 3.0, "R2": 0.9}, "baseline": {"test": {"RMSE": 10.0}}},
             training_data=dummy_training_data, version="v20260102_120000_000005",
         )
         v3 = temp_registry.register_model(
             model_name="model3", model_type="XGB", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-03T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-03T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 3.0, "MAE": 2.0, "R2": 0.95}, "baseline": {"test": {"RMSE": 10.0}}},
             training_data=dummy_training_data, version="v20260103_120000_000005",
         )
 
+        temp_registry.approve_candidate(v1)
         temp_registry.promote(v1)
+        temp_registry.approve_candidate(v2)
         temp_registry.promote(v2)
+        temp_registry.approve_candidate(v3)
         temp_registry.promote(v3)
 
         # Rollback to v1 specifically
@@ -459,14 +462,15 @@ class TestModelRegistry:
         """Test rollback when no previous version exists."""
         version = temp_registry.register_model(
             model_name="model1", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
             training_data=dummy_training_data, version="v20260101_120000_000006",
         )
+        temp_registry.approve_candidate(version)
         temp_registry.promote(version)
 
-        # No legacy version to rollback to
+        # No previous version to rollback to
         with pytest.raises(Exception, match="No previous version"):
             temp_registry.rollback()
 
@@ -474,7 +478,7 @@ class TestModelRegistry:
         """Test validating a valid candidate."""
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
             training_data=dummy_training_data, version="v20260101_120000_000007",
@@ -492,7 +496,7 @@ class TestModelRegistry:
         """Test validation fails when artifact is missing."""
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}},
             training_data=dummy_training_data,
@@ -510,7 +514,7 @@ class TestModelRegistry:
         """Test validation fails on checksum mismatch."""
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}},
             training_data=dummy_training_data,
@@ -528,7 +532,7 @@ class TestModelRegistry:
         """Test validation fails on feature contract mismatch."""
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=["wrong", "features"],
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}},
             training_data=dummy_training_data,
@@ -542,7 +546,7 @@ class TestModelRegistry:
         """Test validation fails when metrics are missing."""
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={},  # Empty metrics
             training_data=dummy_training_data,
@@ -556,7 +560,7 @@ class TestModelRegistry:
         """Test validation fails when metrics are incomplete."""
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0}},  # Missing MAE, R2
             training_data=dummy_training_data,
@@ -571,7 +575,7 @@ class TestModelRegistry:
         """Test validation fails when R2 below minimum."""
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.3}},
             training_data=dummy_training_data, version="v20260101_120000_000008",
@@ -588,7 +592,7 @@ class TestModelRegistry:
         """Test validation fails when RMSE above maximum."""
         version = temp_registry.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
             metrics={"selected_test": {"RMSE": 20.0, "MAE": 4.0, "R2": 0.8}},
             training_data=dummy_training_data, version="v20260101_120000_000009",
@@ -627,11 +631,12 @@ class TestModelRegistry:
 
         version = registry1.register_model(
             model_name="test_model", model_type="LR", artifact_path=dummy_model_artifact,
-            status="cached", training_date_utc="2026-01-01T12:00:00+00:00",
+            status="candidate", training_date_utc="2026-01-01T12:00:00+00:00",
             target_variable="target", feature_names=FEATURE_COLUMNS,
-            metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}},
+            metrics={"selected_test": {"RMSE": 5.0, "MAE": 4.0, "R2": 0.8}, "baseline": {"test": {"RMSE": 10.0}}},
             training_data=dummy_training_data, version="v20260101_120000_000010",
         )
+        registry1.approve_candidate(version)
         registry1.promote(version)
 
         # Create new instance
@@ -682,10 +687,10 @@ class TestRetrainingPipeline:
         # and also create the model artifact file
         def mock_train_func(df, models_dir):
             import joblib
+            import numpy as np
             from sklearn.linear_model import LinearRegression
             from sklearn.pipeline import Pipeline
             from sklearn.preprocessing import StandardScaler
-            import numpy as np
 
             pipe = Pipeline([("scaler", StandardScaler()), ("model", LinearRegression())])
             X = np.random.rand(10, len(FEATURE_COLUMNS))

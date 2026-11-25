@@ -28,6 +28,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.lock
 
+      - name: Install package in development mode
+        run: pip install -e .
+
       - name: Verify key imports
         run: |
           python -c "import pandas; import numpy; import sklearn; import xgboost; import shap; import prophet; import plotly; import streamlit; import joblib; import openpyxl; import matplotlib; import seaborn; import statsmodels; import nbformat; print('All imports OK')"
