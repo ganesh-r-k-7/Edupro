@@ -1,0 +1,72 @@
+# docker-compose.yml — Local development stack for EduPro
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: edupro-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DATA_DIR=/app/data
+      - MODELS_DIR=/app/models
+      - REGISTRY_DIR=/app/models/registry
+      - LOG_FORMAT=text
+      - LOG_LEVEL=DEBUG
+      - AUTH_ENABLED=false
+      - RATE_LIMIT_ENABLED=false
+      - CORS_ENABLED=true
+      - CORS_ORIGINS=*
+      - TRUSTED_HOSTS_ENABLED=false
+    volumes:
+      - ./data:/app/data:ro
+      - ./models:/app/models
+      - ./src:/app/src:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Streamlit dashboard (optional - run separately for development)
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: edupro-dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - ENVIRONMENT=development
+      - DATA_DIR=/app/data
+      - MODELS_DIR=/app/models
+      - REGISTRY_DIR=/app/models/registry
+      - LOG_FORMAT=text
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ./data:/app/data:ro
+      - ./models:/app/models
+      - ./app:/app/app:ro
+      - ./src:/app/src:ro
+    command: ["streamlit", "run", "app/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+
+networks:
+  default:
+    name: edupro-network

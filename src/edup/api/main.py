@@ -3,8 +3,13 @@ main.py — FastAPI application for EduPro Enrollment Prediction API.
 
 Endpoints:
 - GET /health: API status, model availability, model identity/version
+- GET /health/live: Liveness probe (process alive)
+- GET /health/ready: Readiness probe (can serve predictions)
 - GET /model-info: Safe model information (name, type, version, features, metadata)
 - POST /predict/enrollment: Enrollment prediction using canonical feature contract
+- GET /model-registry: List all registry versions
+- GET /model-registry/{version}: Get specific version details
+- GET /: Root info
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import joblib
+import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -44,9 +50,16 @@ from edup.features import (
 from edup.logging import configure_logging, get_logger
 from edup.models import get_registry
 from edup.models.metadata import ModelMetadata, load_model_with_metadata
+from edup.api.middleware import setup_middleware
+from edup.settings import get_settings
 
 # Configure logging
-configure_logging()
+settings = get_settings()
+configure_logging(
+    level=getattr(logging, settings.log_level),
+    json_format=settings.log_format == "json",
+    include_correlation_id=True,
+)
 logger = get_logger("edup.api")
 
 # Global model state (loaded once per process)
@@ -123,7 +136,13 @@ app = FastAPI(
     description="REST API for course enrollment predictions using the EduPro predictive model.",
     version="1.3.0",
     lifespan=lifespan,
+    docs_url="/docs" if settings.is_development else None,
+    redoc_url="/redoc" if settings.is_development else None,
+    openapi_url="/openapi.json" if settings.is_development else None,
 )
+
+# Setup middleware (auth, rate limiting, CORS, etc.)
+setup_middleware(app)
 
 
 # ─── Request/Response Models ───────────────────────────────────────────────────
@@ -313,6 +332,63 @@ async def health_check() -> HealthResponse:
         model_available=model is not None,
         model_name=metadata.model_name if metadata else None,
         model_version=metadata.artifact_filename if metadata else None,
+    )
+
+
+@app.get("/health/live", response_model=HealthResponse, tags=["Health"])
+async def liveness_check() -> HealthResponse:
+    """
+    Liveness probe endpoint.
+
+    Returns whether the application process is running.
+    Does not check model or data availability.
+    """
+    return HealthResponse(
+        status="alive",
+        model_available=False,
+        model_name=None,
+        model_version=None,
+    )
+
+
+@app.get("/health/ready", tags=["Health"])
+async def readiness_check(request: Request) -> JSONResponse:
+    """
+    Readiness probe endpoint.
+
+    Returns whether the service can serve predictions.
+    Checks model availability and optionally registry/data availability.
+    """
+    settings = get_settings()
+    model, metadata, load_error = _load_model_and_metadata()
+
+    checks = {
+        "model_loaded": model is not None,
+        "model_load_error": load_error is None,
+    }
+
+    # Optional detailed checks
+    if settings.health_check_detailed:
+        try:
+            registry = get_registry()
+            active_entry = registry.get_active_version()
+            checks["registry_accessible"] = True
+            checks["active_model_registered"] = active_entry is not None
+        except Exception as exc:
+            logger.warning("readiness_registry_check_failed: %s", exc)
+            checks["registry_accessible"] = False
+            checks["active_model_registered"] = False
+
+    all_healthy = all(v for v in checks.values() if isinstance(v, bool))
+
+    return JSONResponse(
+        status_code=200 if all_healthy else 503,
+        content={
+            "status": "ready" if all_healthy else "not_ready",
+            "checks": checks,
+            "model_name": metadata.model_name if metadata else None,
+            "model_version": metadata.artifact_filename if metadata else None,
+        },
     )
 
 

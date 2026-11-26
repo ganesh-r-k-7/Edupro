@@ -11,6 +11,8 @@ jobs:
     name: Test (Python 3.12)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -47,3 +49,101 @@ jobs:
           echo "Pip packages:"
           pip list | grep -E "pandas|numpy|scikit-learn|xgboost|shap|prophet|plotly|streamlit|joblib"
           echo "Test run completed."
+
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "requirements.lock"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+
+      - name: Run Ruff
+        run: |
+          python -m ruff check src/ tests/ app/
+
+  typecheck:
+    name: Type Check (Mypy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "requirements.lock"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+
+      - name: Install package in development mode
+        run: pip install -e .
+
+      - name: Run Mypy
+        run: |
+          python -m mypy src/ --config-file pyproject.toml
+
+  docker-build:
+    name: Docker Build Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: edupro-api:test
+          target: runtime
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify image runs
+        run: |
+          docker run --rm --entrypoint python edupro-api:test -c "import edup.api.main; print('Import OK')"
+
+      - name: Verify health check
+        run: |
+          # Start container in background
+          docker run -d --name edupro-test -p 8000:8000 \
+            -e ENVIRONMENT=development \
+            -e AUTH_ENABLED=false \
+            -e RATE_LIMIT_ENABLED=false \
+            edupro-api:test
+          # Wait for startup
+          sleep 10
+          # Test health endpoint
+          curl -f http://localhost:8000/health/live || (docker logs edupro-test && exit 1)
+          # Cleanup
+          docker stop edupro-test

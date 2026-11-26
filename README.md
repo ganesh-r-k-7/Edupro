@@ -12,7 +12,7 @@ This project is a research/demo analytics platform for EduPro, an online educati
 
 ## Current Project Stage
 
-**Completed: Phases 1–3 (Architecture & Correctness) + R3.3–R3.5, R3.4 CI, R4.1–R4.4**
+**Completed: Phases 1–3 (Architecture & Correctness) + R3.3–R3.5, R3.4 CI, R4.1–R4.6**
 
 | Phase | Status | Focus | Key Outcomes |
 |-------|--------|-------|--------------|
@@ -25,8 +25,10 @@ This project is a research/demo analytics platform for EduPro, an online educati
 | **R4.1–R4.2** | Complete | Performance | Model caching (`st.cache_resource`); dashboard computation caching |
 | **R4.3** | Complete | Data loading | Parquet-first with CSV fallback |
 | **R4.4** | Complete | Enrollment Prediction API | FastAPI REST API with health, model-info, and prediction endpoints; 60 API tests; Swagger at `/docs` |
+| **R4.5** | Complete | Model Retraining & Registry | Automated retraining, registry lifecycle, promotion/rollback, scheduled workflows |
+| **R4.6** | Complete | Production Readiness | Auth, rate limiting, CORS, structured logging, health checks, Docker, CI hardening |
 
-**The platform is now a well-tested, architecturally sound research prototype with CI, reproducible dependencies, model metadata, and a REST API.**  
+**The platform is now a well-tested, architecturally sound research prototype with CI, reproducible dependencies, model metadata, a REST API, automated retraining, and production-grade security/observability.**  
 It does **not** have a validated demand or revenue model—the data does not support one.
 
 ---
@@ -553,8 +555,145 @@ pytest tests/ -v
 
 - The enrollment model does not beat a mean baseline on this dataset (see Model Performance Summary).
 - Predictions are based on the legacy model artifact unless the Phase 1 model is trained and persisted.
-- The API is for research/prototype use; not production-hardened (no auth, rate limiting, HTTPS termination).
+- The API is for research/prototype use; production hardening (auth, rate limiting, HTTPS) is configured via environment variables.
 - Feature parity with Streamlit predictions is maintained through shared `edup.features` module.
 
 ---
+
+## Production Readiness (R4.6)
+
+The EduPro platform includes production-grade security, observability, and deployment preparation features.
+
+### Security Features
+
+| Feature | Configuration | Default |
+|---------|---------------|---------|
+| API Key Authentication | `AUTH_ENABLED`, `API_KEYS`, `API_KEY_HEADER` | Disabled |
+| Rate Limiting | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS` | Disabled |
+| CORS | `CORS_ENABLED`, `CORS_ORIGINS`, `CORS_ALLOW_CREDENTIALS` | Enabled (`*`) |
+| Trusted Hosts | `TRUSTED_HOSTS_ENABLED`, `TRUSTED_HOSTS` | Disabled |
+| Request Size Limit | `MAX_REQUEST_SIZE_MB` | 10 MB |
+
+**Development:** All security features are disabled or permissive by default for local development.
+**Production:** Set `ENVIRONMENT=production` — the application will fail to start if required security settings are missing.
+
+### Observability
+
+| Feature | Description |
+|---------|-------------|
+| Structured Logging | JSON format in production (`LOG_FORMAT=json`), text in development |
+| Correlation IDs | `X-Correlation-ID` header propagated through request lifecycle |
+| Request Timing | `X-Process-Time` header on all responses (seconds) |
+| Exception Logging | Full stack traces in logs; sanitized responses to clients |
+
+### Health Endpoints
+
+| Endpoint | Purpose | Auth/Rate Limit |
+|----------|---------|-----------------|
+| `GET /health/live` | Liveness probe (process alive) | Exempt |
+| `GET /health/ready` | Readiness probe (model + registry available) | Exempt |
+| `GET /health` | General status + model info | Exempt |
+
+### Configuration
+
+All settings via environment variables or `.env` file. See `.env.example` for template.
+
+**Key Settings:**
+```bash
+ENVIRONMENT=production          # development|staging|production
+AUTH_ENABLED=true               # Required for production
+API_KEYS=key1,key2,key3         # Required for production
+RATE_LIMIT_ENABLED=true         # Required for production
+TRUSTED_HOSTS_ENABLED=true      # Required for production
+CORS_ORIGINS=https://app.example.com  # Required for production (not *)
+LOG_FORMAT=json                 # Required for production
+LOG_LEVEL=INFO                  # Not DEBUG in production
+```
+
+### Docker Deployment
+
+```bash
+# Build
+docker build -t edupro-api .
+
+# Run (production)
+docker run -d -p 8000:8000 \
+  -e ENVIRONMENT=production \
+  -e AUTH_ENABLED=true \
+  -e API_KEYS="<secure-keys>" \
+  -e RATE_LIMIT_ENABLED=true \
+  -e CORS_ORIGINS="https://yourdomain.com" \
+  -e TRUSTED_HOSTS_ENABLED=true \
+  -e LOG_FORMAT=json \
+  -v /persistent/models:/app/models \
+  -v /persistent/data:/app/data:ro \
+  edupro-api
+```
+
+### Docker Compose
+
+```bash
+# Development
+docker-compose up
+
+# Production (create docker-compose.prod.yml with production overrides)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+```
+
+### Model Persistence
+
+Mount `/app/models` and `/app/data` to persistent storage. The model registry at `/app/models/registry` must survive container restarts.
+
+### CI/CD
+
+GitHub Actions workflows:
+- **CI** (`ci.yml`): Test, lint (Ruff), typecheck (Mypy), Docker build validation
+- **Retraining** (`retrain.yml`): Weekly scheduled retraining, manual dispatch, candidate validation
+
+### Testing
+
+```bash
+# All tests (454)
+pytest tests/ -v
+
+# Security tests
+pytest tests/test_api_security.py -v
+
+# Lint
+ruff check src/
+
+# Type check
+mypy src/
+```
+
+### Production Deployment Checklist
+
+- [ ] `ENVIRONMENT=production`
+- [ ] `AUTH_ENABLED=true` with secure `API_KEYS`
+- [ ] `RATE_LIMIT_ENABLED=true` with appropriate limits
+- [ ] `TRUSTED_HOSTS_ENABLED=true` with API domain
+- [ ] `CORS_ORIGINS` set to frontend domain(s)
+- [ ] `LOG_FORMAT=json`, `LOG_LEVEL=INFO`
+- [ ] TLS termination at load balancer
+- [ ] Persistent volumes for models/registry
+- [ ] Model trained, validated, promoted to active
+- [ ] `/health/ready` returns 200 with all checks passing
+- [ ] Monitoring/alerts on health endpoints
+- [ ] Log aggregation configured
+- [ ] Retraining workflow scheduled
+
+### Known Limitations
+
+- In-memory rate limiting (single replica); use Redis for clustered deployments
+- No built-in API key rotation; implement external key management
+- No audit logging; add middleware if required for compliance
+- HTTPS termination required at infrastructure layer
+
+---
+
+## R4.6 Documentation
+
+- `audit/R4.6_PRODUCTION_READINESS_ASSESSMENT.md` — Initial gap analysis
+- `audit/R4.6_IMPLEMENTATION_REPORT.md` — Detailed implementation documentation
+- `audit/R4.6_FINAL_ACCEPTANCE_REPORT.md` — Validation evidence and sign-off
 

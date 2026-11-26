@@ -1,0 +1,66 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+.tox
+.venv
+venv
+env
+*.egg-info
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/
+*.xlsx
+*.csv
+*.parquet
+
+# Models (large artifacts)
+models/*.pkl
+models/registry/versions/
+
+# Reports
+reports/
+
+# Logs
+*.log
+logs/
+
+# Tests
+tests/
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
+
+# Audit
+audit/
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Configuration
+.env
+.env.*
+!.env.example
