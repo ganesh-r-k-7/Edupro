@@ -92,7 +92,7 @@ class TestAPIRateLimiting:
 
     def test_rate_limit_disabled_by_default(self):
         """Rate limiting should be disabled by default."""
-        from edup.api.main import app
+        app = reload_api_module()
         client = TestClient(app)
 
         # Should allow many requests
@@ -106,6 +106,7 @@ class TestAPIRateLimiting:
             "RATE_LIMIT_ENABLED": "true",
             "RATE_LIMIT_REQUESTS": "3",
             "RATE_LIMIT_WINDOW_SECONDS": "60",
+            "AUTH_ENABLED": "false",  # Ensure auth doesn't interfere
         }):
             app = reload_api_module()
             client = TestClient(app)
@@ -127,12 +128,9 @@ class TestAPIRateLimiting:
             "RATE_LIMIT_ENABLED": "true",
             "RATE_LIMIT_REQUESTS": "2",
             "RATE_LIMIT_WINDOW_SECONDS": "60",
+            "AUTH_ENABLED": "false",  # Ensure auth doesn't interfere
         }):
-            import importlib
-            import edup.api.main
-            importlib.reload(edup.api.main)
-            from edup.api.main import app
-
+            app = reload_api_module()
             client = TestClient(app)
 
             # Health endpoints should allow many requests
@@ -160,12 +158,8 @@ class TestAPIRequestSizeLimit:
 
     def test_request_size_limit(self):
         """Large requests should be rejected."""
-        with patch.dict(os.environ, {"MAX_REQUEST_SIZE_MB": "1"}):
-            import importlib
-            import edup.api.main
-            importlib.reload(edup.api.main)
-            from edup.api.main import app
-
+        with patch.dict(os.environ, {"MAX_REQUEST_SIZE_MB": "1", "AUTH_ENABLED": "false"}):
+            app = reload_api_module()
             client = TestClient(app)
 
             # Large payload should be rejected
@@ -180,7 +174,7 @@ class TestAPIHealthEndpoints:
 
     def test_liveness_endpoint(self):
         """Liveness endpoint should return alive status."""
-        from edup.api.main import app
+        app = reload_api_module()
         client = TestClient(app)
 
         r = client.get("/health/live")
@@ -191,7 +185,7 @@ class TestAPIHealthEndpoints:
 
     def test_readiness_endpoint(self):
         """Readiness endpoint should check model availability."""
-        from edup.api.main import app
+        app = reload_api_module()
         client = TestClient(app)
 
         r = client.get("/health/ready")
@@ -203,7 +197,7 @@ class TestAPIHealthEndpoints:
 
     def test_health_endpoint_still_works(self):
         """Original health endpoint should still work."""
-        from edup.api.main import app
+        app = reload_api_module()
         client = TestClient(app)
 
         r = client.get("/health")
@@ -218,7 +212,7 @@ class TestAPICorrelationID:
 
     def test_correlation_id_in_response(self):
         """Response should include correlation ID header."""
-        from edup.api.main import app
+        app = reload_api_module()
         client = TestClient(app)
 
         r = client.get("/health/live")
@@ -228,7 +222,7 @@ class TestAPICorrelationID:
 
     def test_custom_correlation_id_preserved(self):
         """Custom correlation ID should be preserved."""
-        from edup.api.main import app
+        app = reload_api_module()
         client = TestClient(app)
 
         custom_id = "custom-correlation-123"
@@ -242,7 +236,7 @@ class TestAPISecurityHeaders:
 
     def test_no_stack_traces_in_errors(self):
         """Error responses should not contain stack traces."""
-        from edup.api.main import app
+        app = reload_api_module()
         client = TestClient(app)
 
         # Trigger a 500 error
@@ -255,25 +249,23 @@ class TestAPISecurityHeaders:
 
     def test_error_response_format(self):
         """All errors should have consistent format."""
-        # Disable rate limiting for this test
-        import os
-        os.environ["RATE_LIMIT_ENABLED"] = "false"
-        app = reload_api_module()
-        client = TestClient(app)
+        with patch.dict(os.environ, {"RATE_LIMIT_ENABLED": "false", "AUTH_ENABLED": "false"}):
+            app = reload_api_module()
+            client = TestClient(app)
 
-        # Test validation error format (FastAPI default)
-        r = client.post("/predict/enrollment", json={"invalid": "data"})
-        assert r.status_code == 422
-        data = r.json()
-        # FastAPI validation errors have 'detail' field
-        assert "detail" in data
+            # Test validation error format (FastAPI default)
+            r = client.post("/predict/enrollment", json={"invalid": "data"})
+            assert r.status_code == 422
+            data = r.json()
+            # FastAPI validation errors have 'detail' field
+            assert "detail" in data
 
-        # Test our custom error format for 503
-        r = client.get("/model-info")
-        assert r.status_code == 503
-        data = r.json()
-        assert "error" in data
-        assert "message" in data
+            # Test our custom error format for 503
+            r = client.get("/model-info")
+            assert r.status_code == 503
+            data = r.json()
+            assert "error" in data
+            assert "message" in data
 
 
 class TestSettingsValidation:

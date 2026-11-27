@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections import defaultdict
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,10 +22,12 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+import edup.settings
 from edup.logging import get_logger, set_correlation_id
-from edup.settings import get_settings, validate_production_settings
 
 logger = get_logger("edup.api.middleware")
+
+PRODUCTION_CONFIG_INVALID_MSG = "Production configuration invalid"
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -75,8 +77,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return True, 0
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        from edup.settings import get_settings
-        settings = get_settings()
+        settings = edup.settings.get_settings()
 
         if not settings.rate_limit_enabled:
             return await call_next(request)  # type: ignore[no-any-return]
@@ -203,8 +204,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         return False
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        from edup.settings import get_settings
-        settings = get_settings()
+        settings = edup.settings.get_settings()
 
         if not settings.auth_enabled:
             return await call_next(request)  # type: ignore[no-any-return]
@@ -253,15 +253,15 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
 def setup_middleware(app: FastAPI) -> None:
     """Configure all middleware for the FastAPI application."""
-    settings = get_settings()
+    settings = edup.settings.get_settings()
 
     # Validate production settings
     if settings.is_production:
-        issues = validate_production_settings(settings)
+        issues = edup.settings.validate_production_settings(settings)
         if issues:
             for issue in issues:
                 logger.error("production_config_issue: %s", issue)
-            raise RuntimeError(f"Production configuration invalid: {'; '.join(issues)}")
+            raise RuntimeError(f"{PRODUCTION_CONFIG_INVALID_MSG}: {'; '.join(issues)}")  # noqa: TRY003
 
     # 1. Request timing and correlation ID (outermost for full request timing)
     app.add_middleware(RequestTimingMiddleware, log_timing=settings.log_request_timing)  # type: ignore[arg-type]
@@ -301,3 +301,4 @@ def setup_middleware(app: FastAPI) -> None:
             settings.rate_limit_requests,
             settings.rate_limit_window_seconds,
         )
+
